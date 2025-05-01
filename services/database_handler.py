@@ -31,10 +31,15 @@ class DatabaseHandler:
             self.connection.close()
             self.logger.info("Database connection closed")
 
-    def create_table_from_csv(self, table_name, headers):
-        """ایجاد جدول جدید بر اساس هدرها"""
+    def create_table_from_csv(self, table_name, headers=None):
+        """ایجاد جدول جدید بر اساس هدرها یا ساختار پیش‌فرض"""
         try:
             cursor = self.connection.cursor()
+            # تعیین هدرهای پیش‌فرض بر اساس نام جدول
+            if headers[0] != 'order_date' or headers[0] != 'A':
+                table_type = self._detect_table_type(table_name)
+                headers = self._get_default_headers(table_type)
+                self.logger.info(f"Using default headers for table '{table_name}': {headers}")
             
             columns = []
             for header in headers:
@@ -42,9 +47,11 @@ class DatabaseHandler:
                 # اگر فیلد order است، UNIQUE می‌کنیم
                 if header.lower() == 'order':
                     columns.append(f"`{clean_header}` VARCHAR(255) UNIQUE")
+                elif header.lower() == 'f':
+                    columns.append(f"`{clean_header}` VARCHAR(255) UNIQUE")
                 else:
                     columns.append(f"`{clean_header}` TEXT")
-            
+            print("columns",columns)
             create_query = f"""
             CREATE TABLE IF NOT EXISTS `{table_name}` (
                 `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -61,42 +68,96 @@ class DatabaseHandler:
             self.logger.error(f"Failed to create table: {str(e)}")
             return False
 
+
+    def _detect_table_type(self, table_name):
+        """تشخیص نوع جدول بر اساس نام آن"""
+        table_name = table_name.lower()
+        if 'glass' in table_name:
+            return 'glass'
+        elif 'glassreport' in table_name:
+            return 'glass'
+        elif 'frame' in table_name:
+            return 'frame'
+        elif 'framescutting' in table_name:
+            return 'frame'
+        elif 'rush' in table_name:
+            return 'rush'
+        else:
+            return 'default'
+
+    def _get_default_headers(self, table_type):
+        """دریافت هدرهای پیش‌فرض بر اساس نوع جدول"""
+        default_headers = {
+            'glass': [
+                'order_date', 'list_date', 'sealed_unit_id', 'ot', 'window_type', 'line1',
+                'line2', 'line3', 'grills', 'spacer', 'dealer', 'glass_comment','tag', 'zones','u_value',
+                'solar_heat_gain','visual_trasmittance','energy_rating','glass_type','order','width',
+                'height', 'qty','description','note1','note2','rack_id','complete', 'shipping'
+                ],
+
+            'frame': [
+                "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q",
+                "R","S","T","U","V","W","X","Y","Z"
+                ],
+            #'rush': ['order', 'priority', 'due_date', 'description'],
+            #'default': ['order', 'field1', 'field2', 'field3', 'quantity']
+        }
+        return default_headers.get(table_type)
+
+
     def upload_csv_data(self, table_name, csv_file_path, email_notifier=None):
         if not self.connect():
             return False
         
         try:
+            # 1. ابتدا بررسی می‌کنیم آیا فایل هدر دارد یا خیر
+            with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
+                first_line = csvfile.readline().strip().split(",")[0]
+                print("first_line",first_line)
+                try:
+                    # بررسی آیا خط اول می‌تواند هدر باشد (حاوی حروف است)
+                    has_header = any(c.isalpha() for c in first_line)
+                    if not has_header:
+                        print("zzzzzzz")
+                        # تشخیص نوع جدول برای دریافت هدرهای پیش‌فرض
+                        table_type = self._detect_table_type(table_name)
+                        headers = self._get_default_headers(table_type)
+                        
+                        if not headers:
+                            self.logger.error("No default headers defined for this table type")
+                            return False
+                        
+                        # خواندن تمام محتوای فایل
+                        csvfile.seek(0)
+                        content = csvfile.readlines()
+                        
+                        # اضافه کردن هدرها به ابتدای فایل و ذخیره موقت
+                        temp_path = f"{csv_file_path}.tmp"
+                        with open(temp_path, 'w', newline='', encoding='utf-8') as temp_file:
+                            # نوشتن هدرها
+                            temp_file.write(','.join(headers) + '\n')
+                            # نوشتن محتوای اصلی
+                            temp_file.writelines(content)
+                        
+                        # جایگزینی فایل اصلی با فایل موقت
+                        import os
+                        os.replace(temp_path, csv_file_path)
+                        
+                        self.logger.warning(f"Added headers to CSV file: {headers}")
+                    else:
+                        print("has_header",has_header)
+                except Exception as e:
+                    self.logger.error(f"Error checking headers: {str(e)}")
+                    return False
+            
+            # 2. حالا فایل را با هدرهای جدید پردازش می‌کنیم
             cursor = self.connection.cursor()
             
-            # خواندن فایل CSV و بررسی ساختار
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
-                try:
-                    # ابتدا سعی می‌کنیم فایل را با هدر بخوانیم
-                    csvreader = csv.DictReader(csvfile)
-                    
-                    # اگر فایل هدر نداشت، این خطا رخ می‌دهد
-                    if not csvreader.fieldnames:
-                        raise csv.Error("No headers detected")
-                        
-                    headers = [h.strip().replace(' ', '_') for h in csvreader.fieldnames]
-                    
-                except csv.Error:
-                    # اگر فایل هدر نداشت، به صورت دستی هدر می‌سازیم
-                    csvfile.seek(0)  # بازگشت به ابتدای فایل
-                    first_row = csvfile.readline().strip()
-                    num_columns = len(first_row.split(','))
-                    
-                    # ساخت هدرهای پیش‌فرض (column_1, column_2, ...)
-                    headers = [""]
-                    self.logger.warning(f"No headers found. Using auto-generated headers: {headers}")
-                    
-                    # بازگشت به ابتدای فایل برای خواندن دوباره
-                    csvfile.seek(0)
-                    csvreader = csv.DictReader(csvfile, fieldnames=headers)
+                csvreader = csv.DictReader(csvfile)
+                headers = [h.strip().replace(' ', '_') for h in csvreader.fieldnames]
                 
                 self.logger.info(f"Processing CSV with columns: {headers}")
-
-
 
                 # بررسی/ایجاد جدول
                 cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
@@ -113,15 +174,22 @@ class DatabaseHandler:
                         # پر کردن مقادیر خالی برای کلیدهای وجود نداشته
                         complete_row = {h: row.get(h, '') for h in headers}
                         
-                        # بررسی تکراری بودن بر اساس فیلد order اگر وجود دارد
+                        # بررسی تکراری بودن
                         if 'order' in headers:
                             cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `order` = %s LIMIT 1", 
                                         (complete_row['order'],))
                             if cursor.fetchone():
                                 duplicate_rows += 1
                                 if email_notifier:
-                                    order_value = complete_row.get('order', 'N/A')
-                                    email_notifier.notify_duplicate(table_name, order_value, complete_row)
+                                    email_notifier.notify_duplicate(table_name, complete_row['order'], complete_row)
+                                continue
+                        elif 'F' in headers:
+                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `F` = %s LIMIT 1", 
+                                        (complete_row['F'],))
+                            if cursor.fetchone():
+                                duplicate_rows += 1
+                                if email_notifier:
+                                    email_notifier.notify_duplicate(table_name, complete_row.get('F', 'N/A'), complete_row)
                                 continue
                         
                         # ساخت و اجرای کوئری INSERT
@@ -129,18 +197,14 @@ class DatabaseHandler:
                         placeholders = ', '.join(['%s'] * len(headers))
                         values = [complete_row[h] for h in headers]
                         
-                        insert_query = f"""
-                        INSERT INTO `{table_name}` ({columns})
-                        VALUES ({placeholders})
-                        """
-                        
+                        insert_query = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
                         cursor.execute(insert_query, values)
                         new_rows += 1
                         
                     except Exception as e:
-                        self.logger.error(f"Error in row {row_num}: {str(e)}")
+                        #self.logger.error(f"Error in row {row_num}: {str(e)}")
                         continue
-            
+        
             self.connection.commit()
             self.logger.info(f"Successfully inserted {new_rows} rows, {duplicate_rows} duplicates skipped")
             return True
