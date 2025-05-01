@@ -135,17 +135,13 @@ class EmailNotifier:
         """دریافت لیست ایمیل‌های مربوط به نوع جدول با لاگ‌گیری دقیق"""
         recipients = []
         table_type = self._determine_table_type(table_name)
-        print("cc")
         if not table_type:
-            print("ss")
             self.logger.warning(f"No table type matched for: {table_name}")
             return recipients
         
         self.logger.debug(f"Checking emails for table type: {table_type}")
         
-        print("self.email_settings",self.email_settings)
         for email_config in self.email_settings:
-            print("email_config",email_config)
             if email_config.get(table_type, False):
                 recipients.append(email_config['email'])
                 self.logger.debug(f"Added recipient: {email_config['email']} for {table_type}")
@@ -158,7 +154,6 @@ class EmailNotifier:
         return recipients
 
     def _determine_table_type(self, table_name):
-        print("aaa")
         """تعیین نوع جدول با تطابق دقیق‌تر"""
         table_name = table_name.lower().strip()
         

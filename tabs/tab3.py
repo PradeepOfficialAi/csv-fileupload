@@ -48,12 +48,12 @@ class Tab3(ttk.Frame):
             command=self.refresh_emails
         ).pack(side='left', padx=5)
         
-        ttk.Button(
-            btn_frame,
-            text="Test Email",
-            command=self.test_email_config,
-            state='normal' if self.email_notifier else 'disabled'
-        ).pack(side='right', padx=5)
+        # ttk.Button(
+        #     btn_frame,
+        #     text="Test Email",
+        #     command=self.test_email_config,
+        #     state='normal' if self.email_notifier else 'disabled'
+        # ).pack(side='right', padx=5)
     
     def create_email_table(self):
         """Create and configure the email table"""
@@ -98,11 +98,15 @@ class Tab3(ttk.Frame):
         try:
             # دریافت داده ایمیل‌ها از تنظیمات
             emails_data = self.config_manager.get_setting('emails', 'emails', '[]')
-            
-            # تبدیل JSON به لیست
+            # اگر داده یک رشته است، آن را به لیست تبدیل کنید
             if isinstance(emails_data, str):
+                # حذف کاراکترهای غیرضروری و تبدیل به لیست
                 try:
-                    self.email_settings = json.loads(emails_data)
+                    emails_data = emails_data.strip()
+                    if emails_data.startswith('[') and emails_data.endswith(']'):
+                        self.email_settings = json.loads(emails_data)
+                    else:
+                        self.email_settings = []
                 except json.JSONDecodeError as e:
                     self.logger.error(f"Invalid email JSON format: {str(e)}")
                     self.email_settings = []
@@ -119,9 +123,9 @@ class Tab3(ttk.Frame):
                         'frame': bool(email.get('frame', False)),
                         'rush': bool(email.get('rush', False))
                     })
-            
             self.email_settings = valid_emails
             self.logger.info(f"Loaded {len(self.email_settings)} valid email configurations")
+            self.refresh_email_table()
             
         except Exception as e:
             self.logger.error(f"Failed to load email settings: {str(e)}")
@@ -130,6 +134,7 @@ class Tab3(ttk.Frame):
     def refresh_emails(self):
         """Reload emails from config"""
         self.load_emails()
+        self.refresh_email_table()
         messagebox.showinfo("Refreshed", "Email list has been refreshed")
     
     def refresh_email_table(self):

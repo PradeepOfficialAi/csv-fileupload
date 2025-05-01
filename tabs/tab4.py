@@ -13,6 +13,7 @@ class Tab4(ttk.Frame):
         self.monitor = None
         self.create_widgets()
         self.load_settings()
+        self.start_monitoring()
 
     def create_widgets(self):
         # عنوان
