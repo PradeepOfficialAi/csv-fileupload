@@ -1,0 +1,47 @@
+# محیط مجازی پایتون
+venv/
+.env/
+.venv/
+
+# فایل‌های پایتون کامپایل شده
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# فایل‌های حساس و تنظیمات
+*.env
+*.key
+*.secret
+settings.local.*
+
+# فایل‌های IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# فایل‌های اجرایی و باینری
+*.exe
+*.bin
+*.so
+*.dll
+
+# فایل‌های لاگ و دیتابیس
+*.log
+*.sqlite
+*.db
+
+# فایل‌های تولید شده توسط PyInstaller
+dist/
+build/
+*.spec
+
+# فایل‌های کش و موقت
+*.tmp
+*.cache
+*.egg-info
+
+# فایل‌های سیستم عامل
+.DS_Store
+Thumbs.db

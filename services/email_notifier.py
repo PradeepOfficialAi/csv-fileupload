@@ -1,0 +1,134 @@
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
+from dotenv import load_dotenv
+import os
+import json
+import configparser
+from pathlib import Path
+from services.logger import Logger
+
+class EmailNotifier:
+    def __init__(self, smtp_server=None, smtp_port=None, sender_email=None, sender_password=None):
+        self.logger = Logger("EmailNotifier")
+        load_dotenv()
+
+        # خواندن تنظیمات SMTP از .env
+        self.smtp_server = smtp_server or os.getenv('SMTP_SERVER')
+        self.smtp_port = int(smtp_port or os.getenv('SMTP_PORT', 465))
+        self.sender_email = sender_email or os.getenv('SENDER_EMAIL')
+        self.sender_password = sender_password or os.getenv('SENDER_PASSWORD')
+
+        # خواندن تنظیمات ایمیل‌ها از فایل settings.txt
+        self.email_settings = self._load_email_settings()
+        
+        if not all([self.smtp_server, self.smtp_port, self.sender_email, self.sender_password]):
+            self.logger.error("Incomplete SMTP configuration! Email notifications will be disabled.")
+            self.enabled = False
+        else:
+            self.enabled = True
+
+    def _load_email_settings(self):
+        """بارگذاری تنظیمات ایمیل از فایل settings.txt"""
+        config = configparser.ConfigParser()
+        try:
+            config.read(Path('config/settings.txt'))
+            if 'emails' in config:
+                try:
+                    # تبدیل رشته JSON به لیست
+                    return json.loads(config['emails']['emails'])
+                except json.JSONDecodeError:
+                    self.logger.error("Invalid email settings format in settings.txt")
+            return []
+        except Exception as e:
+            self.logger.error(f"Failed to load email settings: {str(e)}")
+            return []
+
+    def notify_duplicate(self, table_name, order_value, row_data):
+        if not self.enabled:
+            return
+
+        # دریافت لیست ایمیل‌های مربوط به این جدول
+        recipients = self.get_recipients_for_table(table_name)
+        if not recipients:
+            self.logger.info(f"No recipients configured for table: {table_name}")
+            return
+
+        subject = f"Important: Duplicate Order #{order_value} in {table_name}"
+        body = f"""
+        <html>
+        <body>
+            <p>Dear Administrator,</p>
+            <p>A duplicate order was detected in <strong>{table_name}</strong>:</p>
+            <ul>
+                <li>Order ID: {order_value}</li>
+                <li>Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</li>
+            </ul>
+            <p>Full data:</p>
+            <pre>{json.dumps(row_data, indent=2)}</pre>
+            <p>--<br>VinylPro System</p>
+        </body>
+        </html>
+        """
+
+        msg = MIMEMultipart('alternative')
+        msg['From'] = f"VinylPro Notifications <{self.sender_email}>"
+        msg['Subject'] = subject
+        msg['X-Priority'] = '1'
+
+        try:
+            with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port) as server:
+                server.login(self.sender_email, self.sender_password)
+                
+                # ارسال ایمیل به هر گیرنده
+                for recipient in recipients:
+                    try:
+                        msg['To'] = recipient
+                        server.send_message(msg)
+                        self.logger.info(f"Notification sent to {recipient}")
+                    except Exception as e:
+                        self.logger.error(f"Failed to send email to {recipient}: {str(e)}")
+                        
+        except Exception as e:
+            self.logger.error(f"SMTP connection failed: {str(e)}")
+
+    def get_recipients_for_table(self, table_name):
+        """دریافت لیست ایمیل‌های مربوط به نوع جدول با لاگ‌گیری دقیق"""
+        recipients = []
+        table_type = self._determine_table_type(table_name)
+        
+        if not table_type:
+            self.logger.warning(f"No table type matched for: {table_name}")
+            return recipients
+        
+        self.logger.debug(f"Checking emails for table type: {table_type}")
+        
+        for email_config in self.email_settings:
+            if email_config.get(table_type, False):
+                recipients.append(email_config['email'])
+                self.logger.debug(f"Added recipient: {email_config['email']} for {table_type}")
+        
+        if not recipients:
+            self.logger.info(f"No recipients configured for table: {table_name} (type: {table_type})")
+        else:
+            self.logger.info(f"Found {len(recipients)} recipients for {table_name}")
+        
+        return recipients
+
+    def _determine_table_type(self, table_name):
+        """تعیین نوع جدول با تطابق دقیق‌تر"""
+        table_name = table_name.lower().strip()
+        
+        # الگوهای تطابق
+        patterns = {
+            'frame': ['frame', 'framereport'],
+            'glass': ['glass', 'glassreport', 'glazing'],
+            'rush': ['rush', 'urgent']
+        }
+        
+        for table_type, keywords in patterns.items():
+            if any(keyword in table_name for keyword in keywords):
+                return table_type
+        
+        return None
