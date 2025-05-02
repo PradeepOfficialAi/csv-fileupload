@@ -68,7 +68,7 @@ class EmailNotifier:
             self.logger.info(f"No recipients configured for table: {table_name}")
             return
         
-        subject = f"Alter ! {table_name} duplicate {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        subject = f"🔴 Alert! {table_name} duplicate {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         body = f"""
         <html>
         <body>
