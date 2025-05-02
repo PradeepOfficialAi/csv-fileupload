@@ -47,11 +47,14 @@ class DatabaseHandler:
                 # اگر فیلد order است، UNIQUE می‌کنیم
                 if header.lower() == 'order':
                     columns.append(f"`{clean_header}` VARCHAR(255) UNIQUE")
+                elif header.lower() == 'sealed_unit_id':
+                    columns.append(f"`{clean_header}` VARCHAR(255) UNIQUE")
                 elif header.lower() == 'f':
+                    columns.append(f"`{clean_header}` VARCHAR(255) UNIQUE")
+                elif header.lower() == 'j':
                     columns.append(f"`{clean_header}` VARCHAR(255) UNIQUE")
                 else:
                     columns.append(f"`{clean_header}` TEXT")
-            print("columns",columns)
             create_query = f"""
             CREATE TABLE IF NOT EXISTS `{table_name}` (
                 `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -181,7 +184,15 @@ class DatabaseHandler:
                             if cursor.fetchone():
                                 duplicate_rows += 1
                                 if email_notifier:
-                                    email_notifier.notify_duplicate(table_name, complete_row['order'], complete_row)
+                                    email_notifier.notify_duplicate(table_name, complete_row['order'], complete_row,"order")
+                                continue
+                        elif 'sealed_unit_id' in headers:
+                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `sealed_unit_id` = %s LIMIT 1", 
+                                        (complete_row['sealed_unit_id'],))
+                            if cursor.fetchone():
+                                duplicate_rows += 1
+                                if email_notifier:
+                                    email_notifier.notify_duplicate(table_name, complete_row['sealed_unit_id'], complete_row,"id")
                                 continue
                         elif 'F' in headers:
                             cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `F` = %s LIMIT 1", 
@@ -189,7 +200,15 @@ class DatabaseHandler:
                             if cursor.fetchone():
                                 duplicate_rows += 1
                                 if email_notifier:
-                                    email_notifier.notify_duplicate(table_name, complete_row.get('F', 'N/A'), complete_row)
+                                    email_notifier.notify_duplicate(table_name, complete_row.get('F', 'N/A'), complete_row,"id")
+                                continue
+                        elif 'J' in headers:
+                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `J` = %s LIMIT 1", 
+                                        (complete_row['J'],))
+                            if cursor.fetchone():
+                                duplicate_rows += 1
+                                if email_notifier:
+                                    email_notifier.notify_duplicate(table_name, complete_row.get('J', 'N/A'), complete_row,"order")
                                 continue
                         
                         # ساخت و اجرای کوئری INSERT

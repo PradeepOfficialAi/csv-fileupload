@@ -59,7 +59,7 @@ class EmailNotifier:
             self.logger.error(f"Failed to load email settings: {str(e)}")
             return []
 
-    def notify_duplicate(self, table_name, order_value, row_data):
+    def notify_duplicate(self, table_name, order_value, row_data,type):
         if not self.enabled:
             return
 
@@ -67,8 +67,13 @@ class EmailNotifier:
         if not recipients:
             self.logger.info(f"No recipients configured for table: {table_name}")
             return
-        
-        subject = f"🔴 Alert! {table_name} duplicate {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        if type == "order":
+            subject = f"🔴 Alert! Resend {table_name} order {datetime.now().strftime('[ %Y-%m-%d ] %H:%M')}"
+        elif type == "id":
+            subject = f"🔴 Alert! DUPLICATE {table_name} cutting {datetime.now().strftime('[ %Y-%m-%d ] %H:%M')}"
+        else:
+            subject = f"🔴 Alert!"
+            
         body = f"""
         <html>
         <body>
