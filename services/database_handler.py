@@ -178,15 +178,7 @@ class DatabaseHandler:
                         complete_row = {h: row.get(h, '') for h in headers}
                         
                         # بررسی تکراری بودن
-                        if 'order' in headers:
-                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `order` = %s LIMIT 1", 
-                                        (complete_row['order'],))
-                            if cursor.fetchone():
-                                duplicate_rows += 1
-                                if email_notifier:
-                                    email_notifier.notify_duplicate(table_name, complete_row['order'], complete_row,"order")
-                                continue
-                        elif 'sealed_unit_id' in headers:
+                        if 'sealed_unit_id' in headers:
                             cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `sealed_unit_id` = %s LIMIT 1", 
                                         (complete_row['sealed_unit_id'],))
                             if cursor.fetchone():
@@ -194,6 +186,15 @@ class DatabaseHandler:
                                 if email_notifier:
                                     email_notifier.notify_duplicate(table_name, complete_row['sealed_unit_id'], complete_row,"id")
                                 continue
+                        elif 'order' in headers:
+                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `order` = %s LIMIT 1", 
+                                        (complete_row['order'],))
+                            if cursor.fetchone():
+                                duplicate_rows += 1
+                                if email_notifier:
+                                    email_notifier.notify_duplicate(table_name, complete_row['order'], complete_row,"order")
+                                continue
+                        
                         elif 'F' in headers:
                             cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `F` = %s LIMIT 1", 
                                         (complete_row['F'],))

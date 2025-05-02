@@ -67,10 +67,11 @@ class EmailNotifier:
         if not recipients:
             self.logger.info(f"No recipients configured for table: {table_name}")
             return
-        if type == "order":
-            subject = f"🔴 Alert! Resend {table_name} order {datetime.now().strftime('[ %Y-%m-%d ] %H:%M')}"
-        elif type == "id":
+
+        if type == "id":
             subject = f"🔴 Alert! DUPLICATE {table_name} cutting {datetime.now().strftime('[ %Y-%m-%d ] %H:%M')}"
+        elif type == "order":
+            subject = f"🔴 Alert! Resend {table_name} order {datetime.now().strftime('[ %Y-%m-%d ] %H:%M')}"
         else:
             subject = f"🔴 Alert!"
             
