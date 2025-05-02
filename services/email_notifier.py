@@ -67,20 +67,14 @@ class EmailNotifier:
         if not recipients:
             self.logger.info(f"No recipients configured for table: {table_name}")
             return
-
-        subject = f"Important: Duplicate Order #{order_value} in {table_name}"
+        
+        subject = f"Alter ! {table_name} duplicate {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         body = f"""
         <html>
         <body>
-            <p>Dear Administrator,</p>
-            <p>A duplicate order was detected in <strong>{table_name}</strong>:</p>
-            <ul>
-                <li>Order ID: {order_value}</li>
-                <li>Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</li>
-            </ul>
-            <p>Full data:</p>
-            <pre>{json.dumps(row_data, indent=2)}</pre>
-            <p>--<br>VinylPro System</p>
+            <p>
+                {order_value} {table_name} send to cut {datetime.now().strftime('%Y-%m-%d')}
+            </p>
         </body>
         </html>
         """
