@@ -59,7 +59,7 @@ class EmailNotifier:
             self.logger.error(f"Failed to load email settings: {str(e)}")
             return []
 
-    def notify_duplicate(self, table_name, order_value, row_data,type):
+    def notify_duplicate(self, table_name, duplicates_list,type):
         if not self.enabled:
             return
 
@@ -84,7 +84,7 @@ class EmailNotifier:
         <html>
         <body>
             <p>
-                {order_value} {table_name} send to cut {datetime.now().strftime('%Y-%m-%d')}
+                {duplicates_list} {table_name} send to cut {datetime.now().strftime('%Y-%m-%d')}
             </p>
         </body>
         </html>

@@ -171,6 +171,7 @@ class DatabaseHandler:
                 # پردازش سطرها
                 new_rows = 0
                 duplicate_rows = 0
+                duplicates_list = []  # لیست برای ذخیره موارد تکراری
                 
                 for row_num, row in enumerate(csvreader, 2):  # شماره‌گذاری از سطر 2 شروع می‌شود
                     try:
@@ -178,39 +179,38 @@ class DatabaseHandler:
                         complete_row = {h: row.get(h, '') for h in headers}
                         
                         # بررسی تکراری بودن
-                        if 'sealed_unit_id' in headers:
-                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `sealed_unit_id` = %s LIMIT 1", 
-                                        (complete_row['sealed_unit_id'],))
-                            if cursor.fetchone():
-                                duplicate_rows += 1
-                                if email_notifier:
-                                    email_notifier.notify_duplicate(table_name, complete_row['sealed_unit_id'], complete_row,"id")
-                                continue
-                        elif 'order' in headers:
-                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `order` = %s LIMIT 1", 
-                                        (complete_row['order'],))
-                            if cursor.fetchone():
-                                duplicate_rows += 1
-                                if email_notifier:
-                                    email_notifier.notify_duplicate(table_name, complete_row['order'], complete_row,"order")
-                                continue
+                        duplicate_key = None
+                        duplicate_value = None
                         
+                        if 'sealed_unit_id' in headers:
+                            type_order = 'id'
+                            duplicate_key = 'sealed_unit_id'
+                            duplicate_value = complete_row['sealed_unit_id']
+                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `sealed_unit_id` = %s LIMIT 1", 
+                                        (duplicate_value,))
+                        elif 'order' in headers:
+                            type_order = 'order'
+                            duplicate_key = 'order'
+                            duplicate_value = complete_row['order']
+                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `order` = %s LIMIT 1", 
+                                        (duplicate_value,))
                         elif 'F' in headers:
+                            type_order = 'id'
+                            duplicate_key = 'F'
+                            duplicate_value = complete_row['F']
                             cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `F` = %s LIMIT 1", 
-                                        (complete_row['F'],))
-                            if cursor.fetchone():
-                                duplicate_rows += 1
-                                if email_notifier:
-                                    email_notifier.notify_duplicate(table_name, complete_row.get('F', 'N/A'), complete_row,"id")
-                                continue
+                                        (duplicate_value,))
                         elif 'J' in headers:
+                            type_order = 'order'
+                            duplicate_key = 'J'
+                            duplicate_value = complete_row['J']
                             cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `J` = %s LIMIT 1", 
-                                        (complete_row['J'],))
-                            if cursor.fetchone():
-                                duplicate_rows += 1
-                                if email_notifier:
-                                    email_notifier.notify_duplicate(table_name, complete_row.get('J', 'N/A'), complete_row,"order")
-                                continue
+                                        (duplicate_value,))
+                        
+                        if duplicate_key and cursor.fetchone():
+                            duplicate_rows += 1
+                            duplicates_list.append(duplicate_value)
+                            continue
                         
                         # ساخت و اجرای کوئری INSERT
                         columns = ', '.join([f'`{h}`' for h in headers])
@@ -222,11 +222,16 @@ class DatabaseHandler:
                         new_rows += 1
                         
                     except Exception as e:
-                        #self.logger.error(f"Error in row {row_num}: {str(e)}")
+                        self.logger.error(f"Error in row {row_num}: {str(e)}")
                         continue
         
             self.connection.commit()
             self.logger.info(f"Successfully inserted {new_rows} rows, {duplicate_rows} duplicates skipped")
+            
+            # ارسال ایمیل برای موارد تکراری (اگر وجود داشتند)
+            if duplicates_list and email_notifier:
+                email_notifier.notify_duplicates(table_name, duplicates_list, type_order)
+                
             return True
             
         except Exception as e:
