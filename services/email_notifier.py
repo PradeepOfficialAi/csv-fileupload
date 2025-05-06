@@ -69,9 +69,9 @@ class EmailNotifier:
             return
 
         if type == "id":
-            subject = f"DUPLICATE {table_name} order re send {datetime.now().strftime('[ %Y-%m-%d ]')}"
+            subject = f"Alert! 🔴 duplicate {table_name} order {datetime.now().strftime('[ %Y-%m-%d %H:%M ] ')}"
         elif type == "order":
-            subject = f"Alert! 🔴 {table_name} order re send {datetime.now().strftime('[ %Y-%m-%d ]')}"
+            subject = f"Alert! 🔴 {table_name} order re send {datetime.now().strftime('[ %Y-%m-%d %H:%M]')}"
         else:
             subject = f"Alert! 🔴"
             

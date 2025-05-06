@@ -8,6 +8,7 @@ from services.email_notifier import EmailNotifier
 from services.logger import Logger
 from pathlib import Path
 import csv  # برای کار با فایل‌های CSV
+import traceback2 as traceback
 
 class FolderMonitor:
     def __init__(self, config_manager):
