@@ -68,10 +68,15 @@ class EmailNotifier:
             self.logger.info(f"No recipients configured for table: {table_name}")
             return
 
+        if table_name == 'glassreport':
+            new_table == 'glass'
+        elif table_name == 'framereport':
+            new_table == 'frame'
+
         if type == "id":
-            subject = f"🔴 Alert! duplicate {table_name} order {datetime.now().strftime('[ %Y-%m-%d %I:%M %p] ')}"
+            subject = f"🔴 Alert! duplicate {new_table} order {datetime.now().strftime('[ %Y-%m-%d %I:%M %p] ')}"
         elif type == "order":
-            subject = f"Alert! Re send {table_name} order {datetime.now().strftime('[ %Y-%m-%d %I:%M %p]')}"
+            subject = f"Alert! Re send {new_table} order {datetime.now().strftime('[ %Y-%m-%d %I:%M %p]')}"
         else:
             subject = f"Alert! 🔴"
             
