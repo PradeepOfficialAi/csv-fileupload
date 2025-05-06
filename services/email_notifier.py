@@ -69,10 +69,11 @@ class EmailNotifier:
             return
 
         if table_name == 'glassreport':
-            new_table == 'glass'
-        elif table_name == 'framereport':
-            new_table == 'frame'
-
+            new_table = 'glass'
+        elif table_name == 'framescutting':
+            new_table = 'frame'
+        print("table_name",table_name)
+        print("new_table",new_table)
         if type == "id":
             subject = f"🔴 Alert! duplicate {new_table} order {datetime.now().strftime('[ %Y-%m-%d %I:%M %p] ')}"
         elif type == "order":

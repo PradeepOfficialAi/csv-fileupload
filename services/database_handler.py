@@ -230,7 +230,7 @@ class DatabaseHandler:
             
             # ارسال ایمیل برای موارد تکراری (اگر وجود داشتند)
             if duplicates_list and email_notifier:
-                email_notifier.notify_duplicates(table_name, duplicates_list, type_order)
+                email_notifier.notify_duplicate(table_name, duplicates_list, type_order)
                 
             return True
             
