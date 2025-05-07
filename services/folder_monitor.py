@@ -144,8 +144,25 @@ class FolderMonitor:
             
             if success:
                 dest_path = move_dir / file_path.name
-                file_path.rename(dest_path)
-                self.logger.info(f"Successfully processed and moved to {dest_path}")
+                
+                # اگر فایل مقصد وجود دارد، نام جدیدی ایجاد کن
+                counter = 1
+                while dest_path.exists():
+                    new_name = f"{file_path.stem}_{counter}{file_path.suffix}"
+                    dest_path = move_dir / new_name
+                    counter += 1
+                
+                # انتقال فایل
+                try:
+                    file_path.rename(dest_path)
+                    self.logger.info(f"Successfully processed and moved to {dest_path}")
+                except PermissionError as pe:
+                    self.logger.error(f"Permission error when moving file: {str(pe)}")
+                    # اگر خطای دسترسی بود، منتظر بمان و دوباره امتحان کن
+                    time.sleep(1)
+                    file_path.rename(dest_path)
+                    self.logger.info(f"Retry successful, moved to {dest_path}")
+                    
             else:
                 self.logger.error(f"Failed to process {file_path}")
                 
