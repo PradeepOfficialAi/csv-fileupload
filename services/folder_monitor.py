@@ -142,39 +142,42 @@ class FolderMonitor:
                 email_notifier=self.email_notifier
             )
             
-            if success:
-                dest_path = move_dir / file_path.name
-                
-                # If destination file exists, create a new name
-                counter = 1
-                while dest_path.exists():
-                    new_name = f"{file_path.stem}_{counter}{file_path.suffix}"
-                    dest_path = move_dir / new_name
-                    counter += 1
-                
-                # Move the file - use shutil for cross-device moves
-                try:
-                    import shutil
-                    shutil.move(str(file_path), str(dest_path))
-                    self.logger.info(f"Successfully processed and moved to {dest_path}")
-                except PermissionError as pe:
-                    self.logger.error(f"Permission error when moving file: {str(pe)}")
-                    # If permission error, wait and retry
-                    time.sleep(1)
-                    shutil.move(str(file_path), str(dest_path))
-                    self.logger.info(f"Retry successful, moved to {dest_path}")
-                except Exception as move_error:
-                    self.logger.error(f"Error moving file: {str(move_error)}")
-                    # If move failed, try copy + delete
-                    try:
-                        shutil.copy2(str(file_path), str(dest_path))
-                        file_path.unlink()
-                        self.logger.info(f"Used copy+delete to move to {dest_path}")
-                    except Exception as copy_error:
-                        self.logger.error(f"Failed to move file completely: {str(copy_error)}")
-                    
-            else:
+            if not success:
                 self.logger.error(f"Failed to process {file_path}")
+                return
+
+            dest_path = move_dir / file_path.name
+            
+            # Handle duplicate filenames
+            counter = 1
+            while dest_path.exists():
+                new_name = f"{file_path.stem}_{counter}{file_path.suffix}"
+                dest_path = move_dir / new_name
+                counter += 1
+            
+            # Try multiple move strategies
+            try:
+                import shutil
+                # First try direct move
+                try:
+                    file_path.rename(dest_path)
+                    self.logger.info(f"Direct rename successful to {dest_path}")
+                except OSError as e:
+                    if e.errno == 18:  # Cross-device link error
+                        # Fallback to copy + delete
+                        shutil.copy2(str(file_path), str(dest_path))
+                        try:
+                            file_path.unlink()
+                            self.logger.info(f"Used copy+delete to move to {dest_path}")
+                        except PermissionError:
+                            self.logger.warning(f"Copied to {dest_path} but couldn't delete original")
+                    else:
+                        raise
+            except Exception as move_error:
+                self.logger.error(f"Failed to move file: {str(move_error)}")
+                # Final fallback - leave file in place but marked as processed
+                with open(str(file_path) + '.processed', 'w') as f:
+                    f.write(f"Processed but not moved due to: {str(move_error)}")
                 
         except Exception as e:
             error_msg = f"Error processing {file_path}: {str(e)}"
