@@ -131,96 +131,85 @@ class FolderMonitor:
                 time.sleep(60)
 
     def _process_file(self, file_path, move_dir, path_name):
-        """Process file and move it after successful upload with CIFS-specific handling"""
+        """Process file with robust CIFS share handling"""
         try:
+            # Database upload logic
             table_name = self._extract_table_name(file_path.name)
             self.logger.info(f"Processing {file_path} for table {table_name}")
             
-            # 1. Upload to database
-            success = self.db_handler.upload_csv_data(
-                table_name=table_name,
-                csv_file_path=str(file_path),
-                email_notifier=self.email_notifier
-            )
+            if not self.db_handler.upload_csv_data(table_name, str(file_path), self.email_notifier):
+                return False
+
+            # Prepare destination with unique filename
+            dest_path = self._get_unique_destination(file_path, move_dir)
             
-            if not success:
-                return False
-
-            # 2. Prepare destination path
-            dest_path = move_dir / file_path.name
-            counter = 1
-            while dest_path.exists():
-                new_name = f"{file_path.stem}_{counter}{file_path.suffix}"
-                dest_path = move_dir / new_name
-                counter += 1
-
-            # 3. Special handling for CIFS mounted shares
-            try:
-                import shutil
-                import os
+            # File transfer handling
+            success, needs_cleanup = self._transfer_file_cifs(file_path, dest_path)
+            
+            if needs_cleanup:
+                self._register_for_cleanup(file_path)
                 
-                # Strategy 1: Try direct copy first (CIFS often has rename limitations)
-                try:
-                    shutil.copy2(str(file_path), str(dest_path))
-                    
-                    # Verify copy was successful
-                    if dest_path.exists() and dest_path.stat().st_size == file_path.stat().st_size:
-                        # Attempt to mark source as processed
-                        try:
-                            processed_path = file_path.with_suffix(file_path.suffix + '.processed')
-                            os.rename(str(file_path), str(processed_path))
-                            self.logger.info(f"Successfully copied and marked source as processed: {processed_path}")
-                        except OSError as e:
-                            # If we can't rename, try to remove (some CIFS implementations allow this)
-                            try:
-                                os.unlink(str(file_path))
-                                self.logger.info(f"Successfully copied and removed source file")
-                            except PermissionError:
-                                self.logger.warning(f"Copied to {dest_path} but couldn't modify source - manual cleanup needed")
-                        return True
-                    else:
-                        raise IOError("Copy verification failed")
-                        
-                except Exception as copy_error:
-                    self.logger.error(f"File copy failed: {copy_error}")
-                    
-                    # Strategy 2: Fallback to direct access if possible
-                    try:
-                        with open(file_path, 'rb') as src, open(dest_path, 'wb') as dst:
-                            dst.write(src.read())
-                        
-                        # Verify contents
-                        if filecmp.cmp(file_path, dest_path, shallow=False):
-                            try:
-                                os.unlink(file_path)
-                                self.logger.info(f"Manual copy and delete successful")
-                                return True
-                            except:
-                                self.logger.warning(f"Manual copy successful but source remains")
-                                return True
-                        else:
-                            raise IOError("Manual copy verification failed")
-                    except Exception as manual_error:
-                        self.logger.error(f"Manual copy failed: {manual_error}")
-                        
-                        # Final fallback: mark as processed without moving
-                        try:
-                            processed_flag = file_path.with_suffix('.processed')
-                            with open(processed_flag, 'w') as f:
-                                f.write(f"Processed at {datetime.now().isoformat()}")
-                            self.logger.warning(f"Created processed flag file at {processed_flag}")
-                            return True
-                        except Exception as flag_error:
-                            self.logger.error(f"Couldn't create processed flag: {flag_error}")
-                            return False
-                            
-            except Exception as final_error:
-                self.logger.error(f"All transfer methods failed: {final_error}")
-                return False
-                
+            return success
+            
         except Exception as e:
-            self.logger.error(f"General processing error: {str(e)}")
+            self.logger.error(f"Processing failed: {str(e)}")
             return False
+
+    def _transfer_file_cifs(self, src, dst):
+        """Specialized file transfer for CIFS shares"""
+        try:
+            import shutil
+            import os
+            
+            # 1. Attempt copy
+            shutil.copy2(str(src), str(dst))
+            
+            # 2. Verify copy
+            if not self._verify_copy(src, dst):
+                raise IOError("Copy verification failed")
+            
+            # 3. Attempt source removal
+            try:
+                os.unlink(str(src))
+                return True, False
+            except PermissionError:
+                # 4. If delete fails, try renaming
+                try:
+                    processed_path = src.with_name(f"{src.name}.processed")
+                    os.rename(str(src), str(processed_path))
+                    return True, False
+                except:
+                    self.logger.warning(f"Copied to {dst} but couldn't modify source")
+                    return True, True
+        
+        except Exception as e:
+            self.logger.error(f"Transfer failed: {str(e)}")
+            return False, False
+
+    def _verify_copy(self, src, dst):
+        """Verify copied file integrity"""
+        import filecmp
+        return (dst.exists() and 
+                dst.stat().st_size == src.stat().st_size and
+                filecmp.cmp(src, dst, shallow=False))
+
+    def _get_unique_destination(self, src_path, dest_dir):
+        """Generate unique destination filename"""
+        counter = 1
+        dest_path = dest_dir / src_path.name
+        while dest_path.exists():
+            dest_path = dest_dir / f"{src_path.stem}_{counter}{src_path.suffix}"
+            counter += 1
+        return dest_path
+
+    def _register_for_cleanup(self, file_path):
+        """Register files needing manual cleanup"""
+        cleanup_file = Path("/var/lib/folder_monitor/cleanup_list.txt")
+        cleanup_file.parent.mkdir(exist_ok=True)
+        
+        with cleanup_file.open('a') as f:
+            f.write(f"{file_path}\n")
+        self.logger.info(f"Registered for cleanup: {file_path}")
 
     
 
