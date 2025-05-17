@@ -113,12 +113,16 @@ class DatabaseHandler:
             return False
         
         try:
-            # 1. Check if file has headers
+            # 1. ابتدا بررسی می‌کنیم آیا فایل هدر دارد یا خیر
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
                 first_line = csvfile.readline().strip().split(",")[0]
+                print("first_line",first_line)
                 try:
+                    # بررسی آیا خط اول می‌تواند هدر باشد (حاوی حروف است)
                     has_header = any(c.isalpha() for c in first_line)
                     if not has_header:
+                        print("zzzzzzz")
+                        # تشخیص نوع جدول برای دریافت هدرهای پیش‌فرض
                         table_type = self._detect_table_type(table_name)
                         headers = self._get_default_headers(table_type)
                         
@@ -126,23 +130,30 @@ class DatabaseHandler:
                             self.logger.error("No default headers defined for this table type")
                             return False
                         
+                        # خواندن تمام محتوای فایل
                         csvfile.seek(0)
                         content = csvfile.readlines()
                         
+                        # اضافه کردن هدرها به ابتدای فایل و ذخیره موقت
                         temp_path = f"{csv_file_path}.tmp"
                         with open(temp_path, 'w', newline='', encoding='utf-8') as temp_file:
+                            # نوشتن هدرها
                             temp_file.write(','.join(headers) + '\n')
+                            # نوشتن محتوای اصلی
                             temp_file.writelines(content)
                         
+                        # جایگزینی فایل اصلی با فایل موقت
                         import os
                         os.replace(temp_path, csv_file_path)
                         
                         self.logger.warning(f"Added headers to CSV file: {headers}")
+                    else:
+                        print("has_header",has_header)
                 except Exception as e:
                     self.logger.error(f"Error checking headers: {str(e)}")
                     return False
             
-            # 2. Process the file with headers
+            # 2. حالا فایل را با هدرهای جدید پردازش می‌کنیم
             cursor = self.connection.cursor()
             
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
@@ -151,60 +162,61 @@ class DatabaseHandler:
                 
                 self.logger.info(f"Processing CSV with columns: {headers}")
 
-                # Check/create table
+                # بررسی/ایجاد جدول
                 cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
                 if not cursor.fetchone():
                     if not self.create_table_from_csv(table_name, headers):
                         return False
                 
-                # Verify table is actually empty
-                cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
-                table_count = cursor.fetchone()[0]
-                self.logger.info(f"Table {table_name} currently has {table_count} rows")
-                
-                # Process rows
+                # پردازش سطرها
                 new_rows = 0
                 duplicate_rows = 0
-                duplicates_list = []
-                
-                for row_num, row in enumerate(csvreader, 2):
+                duplicates_list = []  # لیست برای ذخیره موارد تکراری
+                print("table_name",table_name)
+                for row_num, row in enumerate(csvreader, 2):  # شماره‌گذاری از سطر 2 شروع می‌شود
                     try:
-                        complete_row = {h: row.get(h, '').strip() for h in headers}  # Added strip()
+                        # پر کردن مقادیر خالی برای کلیدهای وجود نداشته
+                        complete_row = {h: row.get(h, '') for h in headers}
                         
-                        # Determine duplicate check field
+                        # بررسی تکراری بودن
                         duplicate_key = None
                         duplicate_value = None
-                        type_order = None
                         
                         if 'sealed_unit_id' in headers:
+                            print("1")
+                            type_order = 'id'
                             duplicate_key = 'sealed_unit_id'
-                            duplicate_value = complete_row['sealed_unit_id'].strip()  # Ensure stripped
-                            type_order = 'id'
+                            duplicate_value = complete_row['sealed_unit_id']
+                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `sealed_unit_id` = %s LIMIT 1", 
+                                        (duplicate_value,))
                         elif 'order' in headers:
+                            print("2")
+                            type_order = 'order'
                             duplicate_key = 'order'
-                            duplicate_value = complete_row['order'].strip()  # Ensure stripped
-                            type_order = 'order'
+                            duplicate_value = complete_row['order']
+                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `order` = %s LIMIT 1", 
+                                        (duplicate_value,))
                         elif 'F' in headers:
-                            duplicate_key = 'F'
-                            duplicate_value = complete_row['F'].strip()  # Ensure stripped
+                            print("3")
                             type_order = 'id'
+                            duplicate_key = 'F'
+                            duplicate_value = complete_row['F']
+                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `F` = %s LIMIT 1", 
+                                        (duplicate_value,))
                         elif 'J' in headers:
-                            duplicate_key = 'J'
-                            duplicate_value = complete_row['J'].strip()  # Ensure stripped
+                            print("4")
                             type_order = 'order'
+                            duplicate_key = 'J'
+                            duplicate_value = complete_row['J']
+                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `J` = %s LIMIT 1", 
+                                        (duplicate_value,))
                         
-                        # Only check for duplicates if we have a key and the table isn't empty
-                        if duplicate_key and table_count > 0:
-                            cursor.execute(
-                                f"SELECT 1 FROM `{table_name}` WHERE `{duplicate_key}` = %s LIMIT 1", 
-                                (duplicate_value,)
-                            )
-                            if cursor.fetchone():
-                                duplicate_rows += 1
-                                duplicates_list.append(duplicate_value)
-                                continue
+                        if duplicate_key and cursor.fetchone():
+                            duplicate_rows += 1
+                            duplicates_list.append(duplicate_value)
+                            continue
                         
-                        # Insert new row
+                        # ساخت و اجرای کوئری INSERT
                         columns = ', '.join([f'`{h}`' for h in headers])
                         placeholders = ', '.join(['%s'] * len(headers))
                         values = [complete_row[h] for h in headers]
@@ -220,9 +232,10 @@ class DatabaseHandler:
             self.connection.commit()
             self.logger.info(f"Successfully inserted {new_rows} rows, {duplicate_rows} duplicates skipped")
             
-            # Only send email if there were actual duplicates
-            if duplicates_list and email_notifier and table_count > 0:
-                email_notifier.notify_duplicate(table_name, duplicates_list, type_order)
+            # ارسال ایمیل برای موارد تکراری (اگر وجود داشتند)
+            if duplicates_list and email_notifier:
+                print("duplicates_list",duplicates_list)
+                #email_notifier.notify_duplicate(table_name, duplicates_list, type_order)
                 
             return True
             
