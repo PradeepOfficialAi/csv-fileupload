@@ -131,7 +131,7 @@ class FolderMonitor:
                 time.sleep(60)
 
     def _process_file(self, file_path, move_dir, path_name):
-        """Process file and move it after successful upload"""
+        """Process file and move it after successful upload with CIFS-specific handling"""
         try:
             table_name = self._extract_table_name(file_path.name)
             self.logger.info(f"Processing {file_path} for table {table_name}")
@@ -154,56 +154,65 @@ class FolderMonitor:
                 dest_path = move_dir / new_name
                 counter += 1
 
-            # 3. File transfer strategies with fallbacks
+            # 3. Special handling for CIFS mounted shares
             try:
                 import shutil
-                from pathlib import Path
+                import os
                 
-                # First attempt: direct rename (same filesystem)
+                # Strategy 1: Try direct copy first (CIFS often has rename limitations)
                 try:
-                    file_path.rename(dest_path)
-                    self.logger.info(f"Direct rename successful to {dest_path}")
-                    return True
-                except OSError as e:
-                    if e.errno != 18:  # Not cross-device error
-                        raise
+                    shutil.copy2(str(file_path), str(dest_path))
                     
-                    # Second attempt: copy + delete with different permissions
-                    try:
-                        # Copy file
-                        shutil.copy2(str(file_path), str(dest_path))
-                        
-                        # Attempt deletion with different approaches
+                    # Verify copy was successful
+                    if dest_path.exists() and dest_path.stat().st_size == file_path.stat().st_size:
+                        # Attempt to mark source as processed
                         try:
-                            file_path.unlink()
-                        except PermissionError:
-                            # Try changing permissions temporarily
+                            processed_path = file_path.with_suffix(file_path.suffix + '.processed')
+                            os.rename(str(file_path), str(processed_path))
+                            self.logger.info(f"Successfully copied and marked source as processed: {processed_path}")
+                        except OSError as e:
+                            # If we can't rename, try to remove (some CIFS implementations allow this)
                             try:
-                                file_path.chmod(0o777)
-                                file_path.unlink()
-                            except:
-                                # Use sudo if configured
-                                if self._try_sudo_delete(file_path):
-                                    self.logger.warning(f"File deleted using sudo")
-                                else:
-                                    raise
-                        
-                        self.logger.info(f"Successful copy and delete to {dest_path}")
+                                os.unlink(str(file_path))
+                                self.logger.info(f"Successfully copied and removed source file")
+                            except PermissionError:
+                                self.logger.warning(f"Copied to {dest_path} but couldn't modify source - manual cleanup needed")
                         return True
+                    else:
+                        raise IOError("Copy verification failed")
                         
-                    except Exception as copy_error:
-                        self.logger.error(f"Copy/delete error: {copy_error}")
-                        # Third approach: rename source file as processed marker
-                        processed_mark = file_path.with_name(f"{file_path.name}.processed")
+                except Exception as copy_error:
+                    self.logger.error(f"File copy failed: {copy_error}")
+                    
+                    # Strategy 2: Fallback to direct access if possible
+                    try:
+                        with open(file_path, 'rb') as src, open(dest_path, 'wb') as dst:
+                            dst.write(src.read())
+                        
+                        # Verify contents
+                        if filecmp.cmp(file_path, dest_path, shallow=False):
+                            try:
+                                os.unlink(file_path)
+                                self.logger.info(f"Manual copy and delete successful")
+                                return True
+                            except:
+                                self.logger.warning(f"Manual copy successful but source remains")
+                                return True
+                        else:
+                            raise IOError("Manual copy verification failed")
+                    except Exception as manual_error:
+                        self.logger.error(f"Manual copy failed: {manual_error}")
+                        
+                        # Final fallback: mark as processed without moving
                         try:
-                            file_path.rename(processed_mark)
-                            self.logger.warning(f"Source file renamed to {processed_mark}")
+                            processed_flag = file_path.with_suffix('.processed')
+                            with open(processed_flag, 'w') as f:
+                                f.write(f"Processed at {datetime.now().isoformat()}")
+                            self.logger.warning(f"Created processed flag file at {processed_flag}")
                             return True
-                        except:
-                            # Fourth approach: create marker file
-                            with open(str(file_path) + '.processed', 'w') as f:
-                                f.write("processed")
-                            return True
+                        except Exception as flag_error:
+                            self.logger.error(f"Couldn't create processed flag: {flag_error}")
+                            return False
                             
             except Exception as final_error:
                 self.logger.error(f"All transfer methods failed: {final_error}")
@@ -211,15 +220,6 @@ class FolderMonitor:
                 
         except Exception as e:
             self.logger.error(f"General processing error: {str(e)}")
-            return False
-
-    def _try_sudo_delete(self, file_path):
-        """Attempt file deletion using sudo"""
-        try:
-            import subprocess
-            subprocess.run(['sudo', 'rm', '-f', str(file_path)], check=True)
-            return True
-        except:
             return False
 
     
