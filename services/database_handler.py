@@ -31,7 +31,7 @@ class DatabaseHandler:
             self.connection.close()
             self.logger.info("Database connection closed")
 
-    def c(self, table_name, headers=None):
+    def create_table_from_csv(self, table_name, headers=None):
         """ایجاد جدول جدید بر اساس هدرها یا ساختار پیش‌فرض"""
         try:
             cursor = self.connection.cursor()
@@ -172,7 +172,7 @@ class DatabaseHandler:
                 new_rows = 0
                 duplicate_rows = 0
                 duplicates_list = []  # لیست برای ذخیره موارد تکراری
-                print("table_name",table_name)
+                
                 for row_num, row in enumerate(csvreader, 2):  # شماره‌گذاری از سطر 2 شروع می‌شود
                     try:
                         # پر کردن مقادیر خالی برای کلیدهای وجود نداشته
@@ -183,28 +183,24 @@ class DatabaseHandler:
                         duplicate_value = None
                         
                         if 'sealed_unit_id' in headers:
-                            print("1")
                             type_order = 'id'
                             duplicate_key = 'sealed_unit_id'
                             duplicate_value = complete_row['sealed_unit_id']
                             cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `sealed_unit_id` = %s LIMIT 1", 
                                         (duplicate_value,))
                         elif 'order' in headers:
-                            print("2")
                             type_order = 'order'
                             duplicate_key = 'order'
                             duplicate_value = complete_row['order']
                             cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `order` = %s LIMIT 1", 
                                         (duplicate_value,))
                         elif 'F' in headers:
-                            print("3")
                             type_order = 'id'
                             duplicate_key = 'F'
                             duplicate_value = complete_row['F']
                             cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `F` = %s LIMIT 1", 
                                         (duplicate_value,))
                         elif 'J' in headers:
-                            print("4")
                             type_order = 'order'
                             duplicate_key = 'J'
                             duplicate_value = complete_row['J']
@@ -234,8 +230,7 @@ class DatabaseHandler:
             
             # ارسال ایمیل برای موارد تکراری (اگر وجود داشتند)
             if duplicates_list and email_notifier:
-                print("duplicates_list",duplicates_list)
-                #email_notifier.notify_duplicate(table_name, duplicates_list, type_order)
+                email_notifier.notify_duplicate(table_name, duplicates_list, type_order)
                 
             return True
             
