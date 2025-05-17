@@ -131,7 +131,7 @@ class FolderMonitor:
                 time.sleep(60)
 
     def _process_file(self, file_path, move_dir, path_name):
-        """پردازش یک فایل و انتقال آن پس از آپلود"""
+        """Process a file and move it after upload"""
         try:
             table_name = self._extract_table_name(file_path.name)
             self.logger.info(f"Processing {file_path} for table {table_name}")
@@ -145,23 +145,33 @@ class FolderMonitor:
             if success:
                 dest_path = move_dir / file_path.name
                 
-                # اگر فایل مقصد وجود دارد، نام جدیدی ایجاد کن
+                # If destination file exists, create a new name
                 counter = 1
                 while dest_path.exists():
                     new_name = f"{file_path.stem}_{counter}{file_path.suffix}"
                     dest_path = move_dir / new_name
                     counter += 1
                 
-                # انتقال فایل
+                # Move the file - use shutil for cross-device moves
                 try:
-                    file_path.rename(dest_path)
+                    import shutil
+                    shutil.move(str(file_path), str(dest_path))
                     self.logger.info(f"Successfully processed and moved to {dest_path}")
                 except PermissionError as pe:
                     self.logger.error(f"Permission error when moving file: {str(pe)}")
-                    # اگر خطای دسترسی بود، منتظر بمان و دوباره امتحان کن
+                    # If permission error, wait and retry
                     time.sleep(1)
-                    file_path.rename(dest_path)
+                    shutil.move(str(file_path), str(dest_path))
                     self.logger.info(f"Retry successful, moved to {dest_path}")
+                except Exception as move_error:
+                    self.logger.error(f"Error moving file: {str(move_error)}")
+                    # If move failed, try copy + delete
+                    try:
+                        shutil.copy2(str(file_path), str(dest_path))
+                        file_path.unlink()
+                        self.logger.info(f"Used copy+delete to move to {dest_path}")
+                    except Exception as copy_error:
+                        self.logger.error(f"Failed to move file completely: {str(copy_error)}")
                     
             else:
                 self.logger.error(f"Failed to process {file_path}")
@@ -169,7 +179,6 @@ class FolderMonitor:
         except Exception as e:
             error_msg = f"Error processing {file_path}: {str(e)}"
             self.logger.error(error_msg)
-            # برای دیباگ می‌توانید traceback را هم لاگ کنید
             self.logger.error(f"Traceback: {traceback.format_exc()}")
 
     # def _save_upload_history(self, filename, table_name, path_name):
