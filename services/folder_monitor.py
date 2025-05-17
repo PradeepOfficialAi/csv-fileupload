@@ -131,11 +131,12 @@ class FolderMonitor:
                 time.sleep(60)
 
     def _process_file(self, file_path, move_dir, path_name):
-        """Process a file and move it after upload"""
+        """Process file and move it after successful upload"""
         try:
             table_name = self._extract_table_name(file_path.name)
             self.logger.info(f"Processing {file_path} for table {table_name}")
             
+            # 1. Upload to database
             success = self.db_handler.upload_csv_data(
                 table_name=table_name,
                 csv_file_path=str(file_path),
@@ -143,58 +144,85 @@ class FolderMonitor:
             )
             
             if not success:
-                self.logger.error(f"Failed to process {file_path}")
-                return
+                return False
 
+            # 2. Prepare destination path
             dest_path = move_dir / file_path.name
-            
-            # Handle duplicate filenames
             counter = 1
             while dest_path.exists():
                 new_name = f"{file_path.stem}_{counter}{file_path.suffix}"
                 dest_path = move_dir / new_name
                 counter += 1
-            
-            # Try multiple move strategies
+
+            # 3. File transfer strategies with fallbacks
             try:
                 import shutil
-                # First try direct move
+                from pathlib import Path
+                
+                # First attempt: direct rename (same filesystem)
                 try:
                     file_path.rename(dest_path)
                     self.logger.info(f"Direct rename successful to {dest_path}")
+                    return True
                 except OSError as e:
-                    if e.errno == 18:  # Cross-device link error
-                        # Fallback to copy + delete
+                    if e.errno != 18:  # Not cross-device error
+                        raise
+                    
+                    # Second attempt: copy + delete with different permissions
+                    try:
+                        # Copy file
                         shutil.copy2(str(file_path), str(dest_path))
+                        
+                        # Attempt deletion with different approaches
                         try:
                             file_path.unlink()
-                            self.logger.info(f"Used copy+delete to move to {dest_path}")
                         except PermissionError:
-                            self.logger.warning(f"Copied to {dest_path} but couldn't delete original")
-                    else:
-                        raise
-            except Exception as move_error:
-                self.logger.error(f"Failed to move file: {str(move_error)}")
-                # Final fallback - leave file in place but marked as processed
-                with open(str(file_path) + '.processed', 'w') as f:
-                    f.write(f"Processed but not moved due to: {str(move_error)}")
+                            # Try changing permissions temporarily
+                            try:
+                                file_path.chmod(0o777)
+                                file_path.unlink()
+                            except:
+                                # Use sudo if configured
+                                if self._try_sudo_delete(file_path):
+                                    self.logger.warning(f"File deleted using sudo")
+                                else:
+                                    raise
+                        
+                        self.logger.info(f"Successful copy and delete to {dest_path}")
+                        return True
+                        
+                    except Exception as copy_error:
+                        self.logger.error(f"Copy/delete error: {copy_error}")
+                        # Third approach: rename source file as processed marker
+                        processed_mark = file_path.with_name(f"{file_path.name}.processed")
+                        try:
+                            file_path.rename(processed_mark)
+                            self.logger.warning(f"Source file renamed to {processed_mark}")
+                            return True
+                        except:
+                            # Fourth approach: create marker file
+                            with open(str(file_path) + '.processed', 'w') as f:
+                                f.write("processed")
+                            return True
+                            
+            except Exception as final_error:
+                self.logger.error(f"All transfer methods failed: {final_error}")
+                return False
                 
         except Exception as e:
-            error_msg = f"Error processing {file_path}: {str(e)}"
-            self.logger.error(error_msg)
-            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            self.logger.error(f"General processing error: {str(e)}")
+            return False
 
-    # def _save_upload_history(self, filename, table_name, path_name):
-    #     """ذخیره تاریخچه آپلودها"""
-    #     history = self.config_manager.get_setting("upload_history", [])
-    #     history.append({
-    #         'timestamp': datetime.now().isoformat(),
-    #         'filename': filename,
-    #         'table': table_name,
-    #         'path': path_name,
-    #         'status': 'success'
-    #     })
-    #     self.config_manager.update_setting("upload_history", history)
+    def _try_sudo_delete(self, file_path):
+        """Attempt file deletion using sudo"""
+        try:
+            import subprocess
+            subprocess.run(['sudo', 'rm', '-f', str(file_path)], check=True)
+            return True
+        except:
+            return False
+
+    
 
     def _extract_table_name(self, filename):
         """استخراج نام جدول از نام فایل"""
