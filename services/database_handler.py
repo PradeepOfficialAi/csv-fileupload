@@ -188,7 +188,7 @@ class DatabaseHandler:
                 # پردازش سطرها
                 new_rows = 0
                 duplicate_rows = 0
-                duplicates_list = []  # لیست برای ذخیره موارد تکراری
+                duplicates = []  # لیست برای ذخیره موارد تکراری
                 
                 for row_num, row in enumerate(csvreader, 2):  # شماره‌گذاری از سطر 2 شروع می‌شود
                     try:
