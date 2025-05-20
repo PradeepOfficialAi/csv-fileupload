@@ -262,17 +262,8 @@ class DatabaseHandler:
     def _get_date_field(self, table_name, headers):
         """تعیین فیلد تاریخ بر اساس نوع جدول"""
         table_type = self._detect_table_type(table_name)
-        print("table_type",table_type)
-        print("headers",headers)
-        if table_type == 'frame' and 'list_date' in headers:
+        if table_type == 'frame':
             return 'list_date'
-        elif 'Date' in headers:
-            return 'Date'
-        elif 'order_date' in headers:
-            return 'order_date'
         else:
-            # اگر فیلد تاریخ پیدا نشد، از اولین فیلد حاوی 'date' استفاده می‌کند
-            for header in headers:
-                if 'date' in header.lower():
-                    return header
-            return 'created_at'
+            return 'Date'
+        
