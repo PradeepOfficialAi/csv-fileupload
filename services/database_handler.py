@@ -3,6 +3,7 @@ from mysql.connector import Error
 import csv
 from pathlib import Path
 from services.logger import Logger
+import os
 
 class DatabaseHandler:
     def __init__(self, host, database, user, password, port=3306):
