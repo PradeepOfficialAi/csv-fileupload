@@ -274,4 +274,4 @@ class DatabaseHandler:
             for header in headers:
                 if 'date' in header.lower():
                     return header
-            return 'created_at
+            return 'created_at'
