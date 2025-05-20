@@ -262,7 +262,7 @@ class DatabaseHandler:
     def _get_date_field(self, table_name, headers):
         """تعیین فیلد تاریخ بر اساس نوع جدول"""
         table_type = self._detect_table_type(table_name)
-        
+        print("table_type",table_type)
         if table_type == 'glass' and 'list_date' in headers:
             return 'list_date'
         elif 'Date' in headers:
