@@ -135,20 +135,33 @@ class DatabaseHandler:
                         content = csvfile.readlines()
                         
                         # اضافه کردن هدرها به ابتدای فایل و ذخیره موقت
-                        temp_path = f"{csv_file_path}.tmp"
-                        with open(temp_path, 'w', newline='', encoding='utf-8') as temp_file:
-                            # نوشتن هدرها
-                            temp_file.write(','.join(headers) + '\n')
-                            # نوشتن محتوای اصلی
-                            temp_file.writelines(content)
+
+                        import tempfile
+                        temp_dir = tempfile.gettempdir()
+                        temp_path = os.path.join(temp_dir, os.path.basename(csv_file_path) + ".tmp")
+
+                        try:
+
+                            with open(temp_path, 'w', newline='', encoding='utf-8') as temp_file:
+                                # نوشتن هدرها
+                                temp_file.write(','.join(headers) + '\n')
+                                # نوشتن محتوای اصلی
+                                temp_file.writelines(content)
+                                # کپی فایل موقت به مسیر اصلی با دسترسی مناسب
+                                import shutil
+                                shutil.copy(temp_path, csv_file_path)
+                                self.logger.warning(f"Added headers to CSV file: {headers}")
                         
-                        # جایگزینی فایل اصلی با فایل موقت
-                        import os
-                        os.replace(temp_path, csv_file_path)
+                        except PermissionError as e:
+                            self.logger.error(f"Permission denied when writing to {temp_path}: {str(e)}")
+                            return False
+                    #     # جایگزینی فایل اصلی با فایل موقت
+                    #     import os
+                    #     os.replace(temp_path, csv_file_path)
                         
-                        self.logger.warning(f"Added headers to CSV file: {headers}")
-                    else:
-                        print("has_header",has_header)
+                    #     self.logger.warning(f"Added headers to CSV file: {headers}")
+                    # else:
+                    #     print("has_header",has_header)
                 except Exception as e:
                     self.logger.error(f"Error checking headers: {str(e)}")
                     return False
