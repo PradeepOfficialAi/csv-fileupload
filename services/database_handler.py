@@ -182,6 +182,9 @@ class DatabaseHandler:
                     if not self.create_table_from_csv(table_name, headers):
                         return False
                 
+
+                 # تعیین فیلد تاریخ بر اساس نوع جدول
+                date_field = self._get_date_field(table_name, headers)
                 # پردازش سطرها
                 new_rows = 0
                 duplicate_rows = 0
@@ -194,37 +197,34 @@ class DatabaseHandler:
                         
                         # بررسی تکراری بودن
                         duplicate_key = None
-                        duplicate_value = None
                         
+                        # تعیین فیلد کلید بر اساس نوع جدول
                         if 'sealed_unit_id' in headers:
-                            type_order = 'id'
-                            duplicate_key = 'sealed_unit_id'
-                            duplicate_value = complete_row['sealed_unit_id']
-                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `sealed_unit_id` = %s LIMIT 1", 
-                                        (duplicate_value,))
+                            duplicate_key = ('sealed_unit_id', complete_row['sealed_unit_id'])
                         elif 'order' in headers:
-                            type_order = 'order'
-                            duplicate_key = 'order'
-                            duplicate_value = complete_row['order']
-                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `order` = %s LIMIT 1", 
-                                        (duplicate_value,))
+                            duplicate_key = ('order', complete_row['order'])
                         elif 'F' in headers:
-                            type_order = 'id'
-                            duplicate_key = 'F'
-                            duplicate_value = complete_row['F']
-                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `F` = %s LIMIT 1", 
-                                        (duplicate_value,))
+                            duplicate_key = ('F', complete_row['F'])
                         elif 'J' in headers:
-                            type_order = 'order'
-                            duplicate_key = 'J'
-                            duplicate_value = complete_row['J']
-                            cursor.execute(f"SELECT 1 FROM `{table_name}` WHERE `J` = %s LIMIT 1", 
-                                        (duplicate_value,))
+                            duplicate_key = ('J', complete_row['J'])
                         
-                        if duplicate_key and cursor.fetchone():
-                            duplicate_rows += 1
-                            duplicates_list.append(duplicate_value)
-                            continue
+                        # اگر رکورد تکراری وجود دارد
+                        if duplicate_key:
+                            key_field, key_value = duplicate_key
+                            query = f"""
+                            SELECT {date_field} 
+                            FROM `{table_name}` 
+                            WHERE `{key_field}` = %s 
+                            LIMIT 1
+                            """
+                            cursor.execute(query, (key_value,))
+                            result = cursor.fetchone()
+                            
+                            if result:
+                                duplicate_rows += 1
+                                original_date = result[0]
+                                duplicates.append((key_value, original_date))
+                                continue
                         
                         # ساخت و اجرای کوئری INSERT
                         columns = ', '.join([f'`{h}`' for h in headers])
@@ -243,14 +243,35 @@ class DatabaseHandler:
             self.logger.info(f"Successfully inserted {new_rows} rows, {duplicate_rows} duplicates skipped")
             
             # ارسال ایمیل برای موارد تکراری (اگر وجود داشتند)
-            if duplicates_list and email_notifier:
-                email_notifier.notify_duplicate(table_name, duplicates_list, type_order)
+            if duplicates and email_notifier:
+                email_notifier.notify_duplicate(
+                    table_name=table_name,
+                    duplicates=duplicates,  # لیست تپل‌های (کلید, تاریخ)
+                    key_field=duplicate_key[0] if duplicate_key else 'order'
+                )
                 
             return True
-            
+                
         except Exception as e:
             self.logger.error(f"Upload failed: {str(e)}")
             self.connection.rollback()
             return False
         finally:
             self.disconnect()
+
+    def _get_date_field(self, table_name, headers):
+        """تعیین فیلد تاریخ بر اساس نوع جدول"""
+        table_type = self._detect_table_type(table_name)
+        
+        if table_type == 'glass' and 'list_date' in headers:
+            return 'list_date'
+        elif 'Date' in headers:
+            return 'Date'
+        elif 'order_date' in headers:
+            return 'order_date'
+        else:
+            # اگر فیلد تاریخ پیدا نشد، از اولین فیلد حاوی 'date' استفاده می‌کند
+            for header in headers:
+                if 'date' in header.lower():
+                    return header
+            return 'created_at

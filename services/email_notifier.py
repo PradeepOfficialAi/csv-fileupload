@@ -78,12 +78,17 @@ class EmailNotifier:
             subject = f"Alert! Re send {new_table} order {datetime.now().strftime('[ %Y-%m-%d %I:%M %p]')}"
         else:
             subject = f"Alert! 🔴"
+
+        # تبدیل لیست به فرمت مورد نظر
+        formatted_duplicates = ", ".join(
+            f"[{item[0]}, {item[1]}]" for item in duplicates_list
+        )
             
         body = f"""
         <html>
         <body>
             <p>
-                {duplicates_list} {table_name} send to cut {datetime.now().strftime('%Y-%m-%d')}
+                {formatted_duplicates} {table_name} send to cut {datetime.now().strftime('%Y-%m-%d')}
             </p>
         </body>
         </html>
