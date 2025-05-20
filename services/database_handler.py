@@ -263,7 +263,7 @@ class DatabaseHandler:
         """تعیین فیلد تاریخ بر اساس نوع جدول"""
         table_type = self._detect_table_type(table_name)
         if table_type == 'frame':
-            return 'list_date'
-        else:
             return 'Date'
+        else:
+            return 'list_date' 
         
