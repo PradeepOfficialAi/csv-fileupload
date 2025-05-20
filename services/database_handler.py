@@ -263,6 +263,7 @@ class DatabaseHandler:
         """تعیین فیلد تاریخ بر اساس نوع جدول"""
         table_type = self._detect_table_type(table_name)
         print("table_type",table_type)
+        print("headers",headers)
         if table_type == 'frame' and 'list_date' in headers:
             return 'list_date'
         elif 'Date' in headers:
