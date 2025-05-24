@@ -73,7 +73,7 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
                 first_line = csvfile.readline().strip()
                 has_header = False
-                print("has_header",has_header)
+                
                 if not has_header:
                     # Create temp file with headers
                     import tempfile

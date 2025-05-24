@@ -71,14 +71,16 @@ class EmailNotifier:
             new_table = 'glass'
         elif table_name == 'framescutting':
             new_table = 'frame'
-        if type == "id":
+
+
+        print("key_field",key_field)
+        if key_field == 'sealed_unit_id' or key_field == 'F':
             subject = f"🔴 Alert! duplicate {new_table} order {datetime.now().strftime('[ %Y-%m-%d %I:%M %p] ')}"
-        elif type == "order":
+        elif key_field == 'order' or key_field == 'J':
             subject = f"Alert! Re send {new_table} order {datetime.now().strftime('[ %Y-%m-%d %I:%M %p]')}"
         else:
             subject = f"Alert! 🔴"
 
-        print("duplicates",duplicates)
         
         # تبدیل لیست به فرمت مورد نظر
         formatted_duplicates = ", ".join(
