@@ -59,7 +59,7 @@ class EmailNotifier:
             self.logger.error(f"Failed to load email settings: {str(e)}")
             return []
 
-    def notify_duplicate(self, table_name, duplicates_list,type):
+    def notify_duplicate(self, table_name, duplicates, key_field):
         if not self.enabled:
             return
 
@@ -67,7 +67,6 @@ class EmailNotifier:
         if not recipients:
             self.logger.info(f"No recipients configured for table: {table_name}")
             return
-
         if table_name == 'glassreport':
             new_table = 'glass'
         elif table_name == 'framescutting':
@@ -79,9 +78,11 @@ class EmailNotifier:
         else:
             subject = f"Alert! 🔴"
 
+        print("duplicates",duplicates)
+        
         # تبدیل لیست به فرمت مورد نظر
         formatted_duplicates = ", ".join(
-            f"[{item[0]}, {item[1]}]" for item in duplicates_list
+            f"[{item[0]}, {item[1]}]" for item in duplicates
         )
             
         body = f"""

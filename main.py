@@ -5,7 +5,7 @@ from tabs.tab2 import Tab2
 from tabs.tab3 import Tab3
 from tabs.tab4 import Tab4
 from config.config import ConfigManager
-from services.database_handler import DatabaseHandler
+from services.database_service import DatabaseService
 from services.email_notifier import EmailNotifier
 
 class MainApplication(tk.Tk):
@@ -40,7 +40,7 @@ class MainApplication(tk.Tk):
                 'password': self.config_manager.get_setting('mysql', 'mysql_pass'),
                 'port': self.config_manager.get_setting('mysql', 'mysql_port')
             }
-            self.db_handler = DatabaseHandler(**mysql_config)
+            self.db_handler = DatabaseService(**mysql_config)
             
             # تنظیمات SMTP/Email
             smtp_config = {

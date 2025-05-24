@@ -6,9 +6,13 @@ from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from pathlib import Path
-from services.database_handler import DatabaseHandler
+from services.database_service import DatabaseService
 from services.email_notifier import EmailNotifier
 from services.logger import Logger
+from abc import ABC, abstractmethod
+import importlib
+from processors.file_processor_factory import FileProcessorFactory
+import shutil
 
 class FolderMonitor:
     def __init__(self, config_manager):
@@ -39,7 +43,7 @@ class FolderMonitor:
                 raise ValueError(f"Path configuration incomplete for {name}")
 
         # Initialize services
-        self.db_handler = DatabaseHandler(
+        self.db_handler = DatabaseService(
             host=config_manager.get_setting('mysql', "mysql_server"),
             database=config_manager.get_setting('mysql', "mysql_db"),
             user=config_manager.get_setting('mysql', "mysql_user"),
@@ -52,6 +56,12 @@ class FolderMonitor:
             smtp_port=int(os.getenv("SMTP_PORT", 587)),
             sender_email=os.getenv("SENDER_EMAIL"),
             sender_password=os.getenv("SENDER_PASSWORD")
+        )
+
+        self.processor_factory = FileProcessorFactory(
+            self.db_handler,
+            self.email_notifier,
+            self.logger
         )
 
     def start(self, interval=30):
@@ -119,39 +129,51 @@ class FolderMonitor:
                 time.sleep(60)
 
     def _process_file(self, file_path, move_dir, path_name):
-        """Process file with robust CIFS handling"""
         try:
-            table_name = self._extract_table_name(file_path.name)
-            self.logger.info(f"Processing {file_path} for table {table_name}")
+            processor = self.processor_factory.get_processor(file_path.name)
             
-            # 1. Upload to database
-            if not self.db_handler.upload_csv_data(
-                table_name=table_name,
-                csv_file_path=str(file_path),
-                email_notifier=self.email_notifier
-            ):
+            # Process the file (upload to DB and handle duplicates)
+            success = processor.process(file_path, move_dir)
+            
+            if not success:
                 return False
-
-            # 2. Prepare destination path
+                
+            # Prepare destination path
             dest_path = self._get_unique_filename(file_path, move_dir)
             
-            # 3. Handle file transfer
-            success, needs_cleanup = self._transfer_file_with_fallback(file_path, dest_path)
+            # Handle file transfer with fallback strategies
+            transfer_success, needs_cleanup = self._transfer_file_with_fallback(file_path, dest_path)
             
             if needs_cleanup:
                 self._register_cleanup(file_path)
+                
+            return transfer_success
             
-            return success
-            
+        except ValueError as e:
+            self.logger.error(str(e))
+            return False
         except Exception as e:
             self.logger.error(f"Error processing file: {str(e)}")
-            return False
+        return False
+
+    def _get_unique_filename(self, src_path, dest_dir):
+        """Generate unique filename if destination exists"""
+        base_name = src_path.name
+        dest_path = dest_dir / base_name
+        counter = 1
+        
+        while dest_path.exists():
+            stem = src_path.stem
+            suffix = src_path.suffix
+            dest_path = dest_dir / f"{stem}_{counter}{suffix}"
+            counter += 1
+            
+        return dest_path
 
     def _transfer_file_with_fallback(self, src, dst):
         """Transfer file with multiple fallback strategies"""
         try:
             # Try direct copy first
-            import shutil
             shutil.copy2(str(src), str(dst))
             
             # Verify copy
@@ -168,7 +190,7 @@ class FolderMonitor:
                     processed_path = src.with_suffix(src.suffix + '.processed')
                     src.rename(processed_path)
                     return True, False
-                except:
+                except Exception:
                     self.logger.warning(f"Copied to {dst} but couldn't modify source")
                     return True, True
         
@@ -176,24 +198,13 @@ class FolderMonitor:
             self.logger.error(f"File transfer failed: {str(e)}")
             return False, False
 
-    def _get_unique_filename(self, src_path, dest_dir):
-        """Generate unique destination filename"""
-        counter = 1
-        dest_path = dest_dir / src_path.name
-        while dest_path.exists():
-            dest_path = dest_dir / f"{src_path.stem}_{counter}{src_path.suffix}"
-            counter += 1
-        return dest_path
-
     def _register_cleanup(self, file_path):
         """Register file for later cleanup"""
-        cleanup_log = Path("/home/ali/cleanup_needed.log")
-        cleanup_log.parent.mkdir(exist_ok=True, parents=True)
-        with cleanup_log.open('a') as f:
-            f.write(f"{datetime.now()}: {file_path}\n")
+        self.logger.info(f"Registered for cleanup: {file_path}")
+        # Add your cleanup registration logic here
 
-    def _extract_table_name(self, filename):
-        """Extract table name from filename"""
-        base_name = os.path.splitext(filename)[0]
-        table_part = base_name.split('_')[0]
-        return ''.join(c for c in table_part.lower() if c.isalnum())
+    
+
+
+
+

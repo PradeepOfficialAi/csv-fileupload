@@ -255,7 +255,7 @@ class Tab3(ttk.Frame):
     
     def edit_email_dialog(self, email: str):
         """Show dialog to edit existing email"""
-        email_data = next((e for e in self.emails if e["email"] == email), None)
+        email_data = next((e for e in self.email_settings if e["email"] == email), None)
         if not email_data:
             return
             
