@@ -115,7 +115,7 @@ class GLASSREPORTProcessor(BaseProcessor):
                 duplicate_rows = 0
                 duplicates = []
                 key_field = 'order'
-                date_field = 'order_date'
+                date_field = 'list_date'
 
                 for row in csvreader:
                     try:
