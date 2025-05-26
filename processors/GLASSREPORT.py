@@ -125,7 +125,7 @@ class GLASSREPORTProcessor(BaseProcessor):
                         # Determine duplicate key
                         if 'sealed_unit_id' in actual_headers and complete_row['sealed_unit_id']:
                             duplicate_key = ('sealed_unit_id', complete_row['sealed_unit_id'])
-                        elif 'order' in actual_headers and complete_row['order']:
+                        if 'order' in actual_headers and complete_row['order']:
                             duplicate_key = ('order', complete_row['order'])
                         
                         # Check for duplicates (but still insert them)

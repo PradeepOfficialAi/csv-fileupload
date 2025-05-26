@@ -123,7 +123,7 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
                         # Determine duplicate key
                         if 'F' in actual_headers and complete_row['F']:
                             duplicate_key = ('F', complete_row['F'])
-                        elif 'J' in actual_headers and complete_row['J']:
+                        if 'J' in actual_headers and complete_row['J']:
                             duplicate_key = ('J', complete_row['J'])
                         
                         # Check for duplicates (but still insert them)
