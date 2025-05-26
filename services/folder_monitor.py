@@ -1,18 +1,14 @@
 import os
 import time
 import threading
-import filecmp
-from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from pathlib import Path
 from services.database_service import DatabaseService
 from services.email_notifier import EmailNotifier
 from services.logger import Logger
-from abc import ABC, abstractmethod
-import importlib
-from processors.file_processor_factory import FileProcessorFactory
 import shutil
+from processors.file_processor_factory import FileProcessorFactory
 
 class FolderMonitor:
     def __init__(self, config_manager):
@@ -64,13 +60,19 @@ class FolderMonitor:
             self.logger
         )
 
-    def start(self, interval=30):
-        """Start monitoring service"""
+        # Track processed files to prevent duplicate processing
+        self.processed_files = set()
+        self.lock = threading.Lock()
+
+    def start(self, interval=None):
+        """Start monitoring service with optional interval"""
+        if interval is not None:
+            self.interval = interval
+        """Start monitoring service using only event-based system"""
         self.running = True
-        self.logger.info("Starting folder monitoring service")
+        self.logger.info("Starting folder monitoring service (event-based only)")
         
-        event_handler = FileSystemEventHandler()
-        event_handler.on_created = self._on_file_created
+        event_handler = FileHandler(self)
         
         # Setup observers for each input path
         for paths in self.path_settings.values():
@@ -79,13 +81,6 @@ class FolderMonitor:
             self.observer.schedule(event_handler, str(input_dir), recursive=False)
         
         self.observer.start()
-        
-        monitor_thread = threading.Thread(
-            target=self._monitor_folders,
-            args=(interval,),
-            daemon=True
-        )
-        monitor_thread.start()
 
     def stop(self):
         """Stop monitoring service"""
@@ -95,41 +90,26 @@ class FolderMonitor:
             self.observer.join()
         self.logger.info("Folder monitoring service stopped")
 
-    def _on_file_created(self, event):
-        """Handle new file creation events"""
-        if not event.is_directory:
-            file_path = Path(event.src_path)
-            if file_path.suffix.lower() == '.csv':
-                for path_name, paths in self.path_settings.items():
-                    input_path = Path(paths['input'])
-                    if str(file_path).startswith(str(input_path)):
-                        self._process_file(file_path, Path(paths['move']), path_name)
-                        break
-
-    def _monitor_folders(self, interval):
-        """Periodic folder monitoring"""
-        while self.running:
-            try:
-                self.logger.info("Checking folders for new files...")
-                
-                for paths in self.path_settings.values():
-                    input_dir = Path(paths['input'])
-                    move_dir = Path(paths['move'])
-                    
-                    input_dir.mkdir(parents=True, exist_ok=True)
-                    move_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    for csv_file in input_dir.glob('*.[cC][sS][vV]'):
-                        self._process_file(csv_file, move_dir, 'periodic_check')
-                
-                time.sleep(interval)
-                
-            except Exception as e:
-                self.logger.error(f"Error in folder monitoring: {str(e)}")
-                time.sleep(60)
-
-    def _process_file(self, file_path, move_dir, path_name):
+    def process_file(self, file_path):
+        """Process a single file with thread-safe checks"""
+        with self.lock:
+            # Skip if already processed or processing
+            if str(file_path) in self.processed_files:
+                return False
+            
+            self.processed_files.add(str(file_path))
+        
         try:
+            # Determine which path group this file belongs to
+            for path_name, paths in self.path_settings.items():
+                input_path = Path(paths['input'])
+                if str(file_path).startswith(str(input_path)):
+                    move_dir = Path(paths['move'])
+                    break
+            else:
+                self.logger.warning(f"File {file_path} not in any monitored directory")
+                return False
+
             processor = self.processor_factory.get_processor(file_path.name)
             
             # Process the file (upload to DB and handle duplicates)
@@ -142,19 +122,17 @@ class FolderMonitor:
             dest_path = self._get_unique_filename(file_path, move_dir)
             
             # Handle file transfer with fallback strategies
-            transfer_success, needs_cleanup = self._transfer_file_with_fallback(file_path, dest_path)
+            transfer_success = self._transfer_file_safely(file_path, dest_path)
             
-            if needs_cleanup:
-                self._register_cleanup(file_path)
-                
             return transfer_success
             
-        except ValueError as e:
-            self.logger.error(str(e))
-            return False
         except Exception as e:
-            self.logger.error(f"Error processing file: {str(e)}")
-        return False
+            self.logger.error(f"Error processing file {file_path}: {str(e)}")
+            return False
+        finally:
+            with self.lock:
+                if str(file_path) in self.processed_files:
+                    self.processed_files.remove(str(file_path))
 
     def _get_unique_filename(self, src_path, dest_dir):
         """Generate unique filename if destination exists"""
@@ -170,10 +148,20 @@ class FolderMonitor:
             
         return dest_path
 
-    def _transfer_file_with_fallback(self, src, dst):
-        """Transfer file with multiple fallback strategies"""
+    def _transfer_file_safely(self, src, dst):
+        """Safe file transfer with verification"""
         try:
-            # Try direct copy first
+            # Create destination directory if not exists
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            
+            # First try atomic rename (fastest if possible)
+            try:
+                src.rename(dst)
+                return True
+            except OSError:
+                pass
+            
+            # Fallback to copy + delete
             shutil.copy2(str(src), str(dst))
             
             # Verify copy
@@ -183,28 +171,50 @@ class FolderMonitor:
             # Try to remove source
             try:
                 src.unlink()
-                return True, False
-            except PermissionError:
-                # Try renaming as fallback
+            except Exception as e:
+                self.logger.warning(f"Could not delete source file {src}: {str(e)}")
+                # Mark for manual cleanup
+                processed_path = src.with_suffix(src.suffix + '.processed')
                 try:
-                    processed_path = src.with_suffix(src.suffix + '.processed')
                     src.rename(processed_path)
-                    return True, False
                 except Exception:
-                    self.logger.warning(f"Copied to {dst} but couldn't modify source")
-                    return True, True
+                    pass
+            
+            return True
         
         except Exception as e:
-            self.logger.error(f"File transfer failed: {str(e)}")
-            return False, False
+            self.logger.error(f"File transfer failed from {src} to {dst}: {str(e)}")
+            # Clean up failed copy if exists
+            if dst.exists():
+                try:
+                    dst.unlink()
+                except Exception:
+                    pass
+            return False
 
-    def _register_cleanup(self, file_path):
-        """Register file for later cleanup"""
-        self.logger.info(f"Registered for cleanup: {file_path}")
-        # Add your cleanup registration logic here
 
+class FileHandler(FileSystemEventHandler):
+    """Custom event handler for file system events"""
+    def __init__(self, folder_monitor):
+        super().__init__()
+        self.folder_monitor = folder_monitor
     
-
-
-
-
+    def on_created(self, event):
+        """Handle file creation events"""
+        if not event.is_directory and event.src_path.lower().endswith('.csv'):
+            file_path = Path(event.src_path)
+            
+            # Wait briefly to ensure file is fully written
+            time.sleep(0.5)
+            
+            # Process in a new thread to avoid blocking
+            threading.Thread(
+                target=self.folder_monitor.process_file,
+                args=(file_path,),
+                daemon=True
+            ).start()
+    
+    def on_moved(self, event):
+        """Handle file move events (some systems report copy as move)"""
+        if not event.is_directory and event.dest_path.lower().endswith('.csv'):
+            self.on_created(event)
