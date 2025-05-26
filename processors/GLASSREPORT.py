@@ -128,7 +128,7 @@ class GLASSREPORTProcessor(BaseProcessor):
                         elif 'order' in actual_headers and complete_row['order']:
                             duplicate_key = ('order', complete_row['order'])
                         
-                        # Check for duplicates
+                        # Check for duplicates (but still insert them)
                         if duplicate_key:
                             key_field, key_value = duplicate_key
                             query = f"""
@@ -144,9 +144,9 @@ class GLASSREPORTProcessor(BaseProcessor):
                                 duplicate_rows += 1
                                 original_date = result[0]
                                 duplicates.append((key_value, original_date))
-                                continue
+                                # Continue with insertion even if it's a duplicate
                         
-                        # Insert new record
+                        # Insert record (whether it's a duplicate or not)
                         columns = ', '.join([f'`{h}`' for h in actual_headers])
                         placeholders = ', '.join(['%s'] * len(actual_headers))
                         values = [complete_row[h] for h in actual_headers]
@@ -160,7 +160,7 @@ class GLASSREPORTProcessor(BaseProcessor):
                         continue
                 
                 self.connection.commit()
-                self.logger.info(f"Inserted {new_rows} rows, skipped {duplicate_rows} duplicates")
+                self.logger.info(f"Inserted {new_rows} rows (including {duplicate_rows} duplicates)")
                 
                 # 5. Send email notification for duplicates
                 if duplicates and email_notifier:
@@ -192,7 +192,7 @@ class GLASSREPORTProcessor(BaseProcessor):
                 clean_header = header.replace(' ', '_')
                 
                 if header.lower() in ['order', 'sealed_unit_id', 'f', 'j']:
-                    col_def = f"`{clean_header}` VARCHAR(255) UNIQUE"
+                    col_def = f"`{clean_header}` VARCHAR(255)"  # Removed UNIQUE constraint
                 elif header.lower() in ['width', 'height', 'qty']:
                     col_def = f"`{clean_header}` DECIMAL(10,2)"
                 elif any(x in header.lower() for x in ['date', 'time']):
@@ -226,4 +226,3 @@ class GLASSREPORTProcessor(BaseProcessor):
         """Check if table exists in database"""
         cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
         return cursor.fetchone() is not None
-
