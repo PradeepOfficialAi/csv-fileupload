@@ -66,9 +66,9 @@ class GLASSREPORTProcessor(BaseProcessor):
             # 1. Define expected headers
             headers = [
                 'order_date', 'list_date', 'sealed_unit_id', 'ot', 'window_type', 'line1',
-                'line2', 'line3', 'grills', 'spacer', 'dealer', 'glass_comment','tag', 'zones','u_value',
-                'solar_heat_gain','visual_trasmittance','energy_rating','glass_type','order','width',
-                'height', 'qty','description','note1','note2','rack_id','complete', 'shipping'
+                'line2', 'line3', 'grills', 'spacer', 'dealer', 'glass_comment', 'tag', 'zones', 'u_value',
+                'solar_heat_gain', 'visual_trasmittance', 'energy_rating', 'glass_type', 'order', 'width',
+                'height', 'qty', 'description', 'note1', 'note2', 'rack_id', 'complete', 'shipping'
             ]
             
             # 2. Process CSV file - add headers if missing
@@ -114,39 +114,62 @@ class GLASSREPORTProcessor(BaseProcessor):
                 new_rows = 0
                 duplicate_rows = 0
                 duplicates = []
-                key_field = 'order'
+                resend_orders = []
+                key_field = None
                 date_field = 'list_date'
 
                 for row in csvreader:
                     try:
                         complete_row = {h: row.get(h, '') for h in actual_headers}
-                        duplicate_key = None
-                        
-                        # Determine duplicate key
-                        if 'sealed_unit_id' in actual_headers and complete_row['sealed_unit_id']:
-                            duplicate_key = ('sealed_unit_id', complete_row['sealed_unit_id'])
-                        if 'order' in actual_headers and complete_row['order']:
-                            duplicate_key = ('order', complete_row['order'])
-                        
-                        # Check for duplicates (but still insert them)
-                        if duplicate_key:
-                            key_field, key_value = duplicate_key
-                            query = f"""
-                            SELECT {date_field} 
-                            FROM `{table_name}` 
-                            WHERE `{key_field}` = %s 
+                        order_id = complete_row.get('order', '')
+                        sealed_unit_id = complete_row.get('sealed_unit_id', '')
+                        is_duplicate = False
+
+                        # Check for duplicates (order and sealed_unit_id match)
+                        if order_id and sealed_unit_id:
+                            query = """
+                            SELECT list_date 
+                            FROM `glassreport` 
+                            WHERE `order` = %s AND `sealed_unit_id` = %s
                             LIMIT 1
                             """
-                            cursor.execute(query, (key_value,))
+                            cursor.execute(query, (order_id, sealed_unit_id))
                             result = cursor.fetchone()
                             
                             if result:
                                 duplicate_rows += 1
                                 original_date = result[0]
-                                duplicates.append((key_value, original_date))
-                                # Continue with insertion even if it's a duplicate
-                        
-                        # Insert record (whether it's a duplicate or not)
+                                duplicates.append({
+                                    'order': order_id,
+                                    'sealed_unit_id': sealed_unit_id,
+                                    'original_date': original_date,
+                                    'type': 'DUPLICATE'
+                                })
+                                key_field = 'sealed_unit_id'
+                                is_duplicate = True
+
+                        # Check for resends (order match only, but not a duplicate)
+                        if order_id and not is_duplicate:
+                            query = """
+                            SELECT list_date 
+                            FROM `glassreport` 
+                            WHERE `order` = %s
+                            LIMIT 1
+                            """
+                            cursor.execute(query, (order_id,))
+                            result = cursor.fetchone()
+                            
+                            if result:
+                                duplicate_rows += 1
+                                original_date = result[0]
+                                resend_orders.append({
+                                    'order': order_id,
+                                    'original_date': original_date,
+                                    'type': 'RE-SEND'
+                                })
+                                key_field = 'order'
+
+                        # Insert the record (always insert, regardless of duplicate/resend)
                         columns = ', '.join([f'`{h}`' for h in actual_headers])
                         placeholders = ', '.join(['%s'] * len(actual_headers))
                         values = [complete_row[h] for h in actual_headers]
@@ -160,15 +183,22 @@ class GLASSREPORTProcessor(BaseProcessor):
                         continue
                 
                 self.connection.commit()
-                self.logger.info(f"Inserted {new_rows} rows (including {duplicate_rows} duplicates)")
+                self.logger.info(f"Inserted {new_rows} rows, identified {duplicate_rows} duplicates/resends")
                 
-                # 5. Send email notification for duplicates
-                if duplicates and email_notifier:
-                    email_notifier.notify_duplicate(
-                        table_name=table_name,
-                        duplicates=duplicates,
-                        key_field=key_field
-                    )
+                # 5. Send email notifications
+                if email_notifier:
+                    if duplicates:
+                        email_notifier.notify_duplicate(
+                            table_name=table_name,
+                            duplicates=duplicates,
+                            key_field=key_field
+                        )
+                    if resend_orders:
+                        email_notifier.notify_resend(
+                            table_name=table_name,
+                            resends=resend_orders,
+                            key_field='order'
+                        )
                     
                 return True
                 
@@ -176,47 +206,6 @@ class GLASSREPORTProcessor(BaseProcessor):
             self.logger.error(f"Upload failed: {e}")
             if self.connection:
                 self.connection.rollback()
-            return False
-        finally:
-            if cursor:
-                cursor.close()
-
-    def _create_table(self, table_name, headers):
-        """Create table with appropriate structure"""
-        cursor = None
-        try:
-            cursor = self.connection.cursor()
-            
-            columns = []
-            for header in headers:
-                clean_header = header.replace(' ', '_')
-                
-                if header.lower() in ['order', 'sealed_unit_id', 'f', 'j']:
-                    col_def = f"`{clean_header}` VARCHAR(255)"  # Removed UNIQUE constraint
-                elif header.lower() in ['width', 'height', 'qty']:
-                    col_def = f"`{clean_header}` DECIMAL(10,2)"
-                elif any(x in header.lower() for x in ['date', 'time']):
-                    col_def = f"`{clean_header}` DATE"
-                else:
-                    col_def = f"`{clean_header}` TEXT"
-                
-                columns.append(col_def)
-            
-            query = f"""
-            CREATE TABLE `{table_name}` (
-                `id` INT AUTO_INCREMENT PRIMARY KEY,
-                {','.join(columns)},
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            """
-            
-            cursor.execute(query)
-            self.connection.commit()
-            self.logger.info(f"Created table '{table_name}' with {len(headers)} columns")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to create table: {str(e)}")
             return False
         finally:
             if cursor:

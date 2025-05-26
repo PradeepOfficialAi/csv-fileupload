@@ -65,33 +65,34 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
         try:
             # 1. Define expected headers
             headers = [
-                "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q",
-                "R","S","T","U","V","W","X","Y","Z"
+                "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
+                "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"
             ]
             
-            # 2. Process CSV file - add headers if missing
+            # 2. Check if CSV file already has the expected headers
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
                 first_line = csvfile.readline().strip()
-                has_header = False
+                first_line_headers = [h.strip() for h in first_line.split(',')]
+                has_expected_headers = first_line_headers == headers
                 
-                if not has_header:
+                if not has_expected_headers:
                     # Create temp file with headers
                     import tempfile
+                    import shutil
                     temp_dir = tempfile.gettempdir()
                     temp_path = os.path.join(temp_dir, os.path.basename(csv_file_path) + ".tmp")
                     
                     try:
                         with open(temp_path, 'w', newline='', encoding='utf-8') as temp_file:
                             temp_file.write(','.join(headers) + '\n')
-                            temp_file.write(first_line + '\n')  # Write the first line we read
+                            temp_file.write(first_line + '\n')  # Write the first line as data
                             temp_file.writelines(csvfile.readlines())  # Write the rest
                         
                         # Replace original file with temp file
-                        import shutil
                         shutil.move(temp_path, csv_file_path)
                         self.logger.warning(f"Added headers to CSV file: {headers}")
                     except Exception as e:
-                        self.logger.error(f"Error adding headers: {e}")
+                        self.logger.error(f"Error adding headers to {csv_file_path}: {str(e)}")
                         return False
             
             # 3. Now process the file with headers
@@ -112,39 +113,64 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
                 new_rows = 0
                 duplicate_rows = 0
                 duplicates = []
-                key_field = 'F'
+                resend_orders = []
+                key_field = None
                 date_field = 'U'
 
                 for row in csvreader:
                     try:
                         complete_row = {h: row.get(h, '') for h in actual_headers}
-                        duplicate_key = None
-                        
-                        # Determine duplicate key
-                        if 'F' in actual_headers and complete_row['F']:
-                            duplicate_key = ('F', complete_row['F'])
-                        if 'J' in actual_headers and complete_row['J']:
-                            duplicate_key = ('J', complete_row['J'])
-                        
-                        # Check for duplicates (but still insert them)
-                        if duplicate_key:
-                            key_field, key_value = duplicate_key
-                            query = f"""
-                            SELECT {date_field} 
-                            FROM `{table_name}` 
-                            WHERE `{key_field}` = %s 
+                        order_id = complete_row.get('F', '')  # F is order
+                        sealed_unit_id = complete_row.get('J', '')  # J is sealed_unit_id
+                        is_duplicate = False
+
+                        # Check for duplicates (order and sealed_unit_id match)
+                        if order_id and sealed_unit_id:
+                            query = """
+                            SELECT U 
+                            FROM `framescutting` 
+                            WHERE `F` = %s AND `J` = %s
                             LIMIT 1
                             """
-                            cursor.execute(query, (key_value,))
+                            cursor.execute(query, (order_id, sealed_unit_id))
                             result = cursor.fetchone()
                             
                             if result:
                                 duplicate_rows += 1
-                                original_date = result[0]
-                                duplicates.append((key_value, original_date))
-                                # Continue with insertion even if it's a duplicate
-                        
-                        # Insert record (whether it's a duplicate or not)
+                                original_date = result[0] if result[0] else 'Unknown'
+                                duplicates.append({
+                                    'order': order_id,
+                                    'sealed_unit_id': sealed_unit_id,
+                                    'original_date': original_date,
+                                    'type': 'DUPLICATE'
+                                })
+                                key_field = 'J'
+                                is_duplicate = True
+                                self.logger.debug(f"Duplicate found: order={order_id}, sealed_unit_id={sealed_unit_id}, original_date={original_date}")
+
+                        # Check for resends (order match only, but not a duplicate)
+                        if order_id and not is_duplicate:
+                            query = """
+                            SELECT U 
+                            FROM `framescutting` 
+                            WHERE `F` = %s
+                            LIMIT 1
+                            """
+                            cursor.execute(query, (order_id,))
+                            result = cursor.fetchone()
+                            
+                            if result:
+                                duplicate_rows += 1
+                                original_date = result[0] if result[0] else 'Unknown'
+                                resend_orders.append({
+                                    'order': order_id,
+                                    'original_date': original_date,
+                                    'type': 'RE-SENT'
+                                })
+                                key_field = 'F'
+                                self.logger.debug(f"Resend found: order={order_id}, original_date={original_date}")
+
+                        # Insert the record (always insert, regardless of duplicate/resend)
                         columns = ', '.join([f'`{h}`' for h in actual_headers])
                         placeholders = ', '.join(['%s'] * len(actual_headers))
                         values = [complete_row[h] for h in actual_headers]
@@ -154,24 +180,33 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
                         new_rows += 1
 
                     except Exception as e:
-                        #self.logger.error(f"Row processing error: {e}")
+                        self.logger.error(f"Row processing error for row {complete_row}: {str(e)}")
                         continue
                 
                 self.connection.commit()
-                self.logger.info(f"Inserted {new_rows} rows (including {duplicate_rows} duplicates)")
+                self.logger.info(f"Inserted {new_rows} rows, identified {duplicate_rows} duplicates/resends")
                 
-                # 5. Send email notification for duplicates
-                if duplicates and email_notifier:
-                    email_notifier.notify_duplicate(
-                        table_name=table_name,
-                        duplicates=duplicates,
-                        key_field=key_field
-                    )
+                # 5. Send email notifications
+                if email_notifier:
+                    if duplicates:
+                        self.logger.info(f"Sending duplicate notification for {len(duplicates)} duplicates")
+                        email_notifier.notify_duplicate(
+                            table_name=table_name,
+                            duplicates=duplicates,
+                            key_field=key_field
+                        )
+                    if resend_orders:
+                        self.logger.info(f"Sending resend notification for {len(resend_orders)} resends")
+                        email_notifier.notify_resend(
+                            table_name=table_name,
+                            resends=resend_orders,
+                            key_field='F'
+                        )
                     
                 return True
                 
         except Exception as e:
-            self.logger.error(f"Upload failed: {e}")
+            self.logger.error(f"Upload failed for {csv_file_path}: {str(e)}")
             if self.connection:
                 self.connection.rollback()
             return False
@@ -189,11 +224,11 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
             for header in headers:
                 clean_header = header.replace(' ', '_')
                 
-                if header.lower() in ['order', 'sealed_unit_id', 'f', 'j']:
-                    col_def = f"`{clean_header}` VARCHAR(255)"  # Removed UNIQUE constraint
+                if header.lower() in ['f', 'j']:  # F: order, J: sealed_unit_id
+                    col_def = f"`{clean_header}` VARCHAR(255)"
                 elif header.lower() in ['width', 'height', 'qty']:
                     col_def = f"`{clean_header}` DECIMAL(10,2)"
-                elif any(x in header.lower() for x in ['date', 'time']):
+                elif header.lower() in ['u']:  # U: date field
                     col_def = f"`{clean_header}` DATE"
                 else:
                     col_def = f"`{clean_header}` TEXT"
@@ -204,7 +239,9 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
             CREATE TABLE `{table_name}` (
                 `id` INT AUTO_INCREMENT PRIMARY KEY,
                 {','.join(columns)},
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX `idx_order` (`F`),
+                INDEX `idx_sealed_unit_id` (`J`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
             
@@ -214,7 +251,7 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to create table: {str(e)}")
+            self.logger.error(f"Failed to create table '{table_name}': {str(e)}")
             return False
         finally:
             if cursor:

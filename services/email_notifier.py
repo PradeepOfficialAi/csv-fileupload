@@ -60,6 +60,7 @@ class EmailNotifier:
             return []
 
     def notify_duplicate(self, table_name, duplicates, key_field):
+        """Notify about duplicate orders (both order and sealed_unit_id match)"""
         if not self.enabled:
             return
 
@@ -67,36 +68,72 @@ class EmailNotifier:
         if not recipients:
             self.logger.info(f"No recipients configured for table: {table_name}")
             return
-        if table_name == 'glassreport':
-            new_table = 'glass'
-        elif table_name == 'framescutting':
-            new_table = 'frame'
 
-
-        print("key_field",key_field)
-        if key_field == 'sealed_unit_id' or key_field == 'F':
-            subject = f"🔴 Alert! duplicate {new_table} order {datetime.now().strftime('[ %Y-%m-%d %I:%M %p] ')}"
-        elif key_field == 'order' or key_field == 'J':
-            subject = f"Alert! Re send {new_table} order {datetime.now().strftime('[ %Y-%m-%d %I:%M %p]')}"
-        else:
-            subject = f"Alert! 🔴"
-
+        table_display_name = 'Glass' if 'glass' in table_name.lower() else 'Frame'
         
-        # تبدیل لیست به فرمت مورد نظر
-        formatted_duplicates = ", ".join(
-            f"[{item[0]}, {item[1]}]" for item in duplicates
-        )
+        subject = f"🔴 DUPLICATE {table_display_name} Order Alert {datetime.now().strftime('[%Y-%m-%d %I:%M %p]')}"
+        
+        # Format duplicates for email body
+        formatted_duplicates = []
+        for dup in duplicates:
+            formatted_duplicates.append(
+                f"Order: {dup['order']}, Sealed Unit ID: {dup['sealed_unit_id']}, "
+                f"Original Date: {dup['original_date']}"
+            )
             
         body = f"""
         <html>
         <body>
-            <p>
-                {formatted_duplicates} {table_name} send to cut {datetime.now().strftime('%Y-%m-%d')}
-            </p>
+            <h2>Duplicate {table_display_name} Orders Detected</h2>
+            <p>The following orders were identified as duplicates (both order number and sealed unit ID match existing records):</p>
+            <ul>
+                {"".join(f"<li>{item}</li>" for item in formatted_duplicates)}
+            </ul>
+            <p>Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         </body>
         </html>
         """
 
+        self._send_email(recipients, subject, body)
+
+    def notify_resend(self, table_name, resends, key_field):
+        """Notify about re-sent orders (order number match only)"""
+        if not self.enabled:
+            return
+
+        recipients = self.get_recipients_for_table(table_name)
+        if not recipients:
+            self.logger.info(f"No recipients configured for table: {table_name}")
+            return
+
+        table_display_name = 'Glass' if 'glass' in table_name.lower() else 'Frame'
+        
+        subject = f"⚠️ RE-SENT {table_display_name} Order Notification {datetime.now().strftime('[%Y-%m-%d %I:%M %p]')}"
+        
+        # Format resends for email body
+        formatted_resends = []
+        for resend in resends:
+            formatted_resends.append(
+                f"Order: {resend['order']}, Original Date: {resend['original_date']}"
+            )
+            
+        body = f"""
+        <html>
+        <body>
+            <h2>Re-Sent {table_display_name} Orders Detected</h2>
+            <p>The following orders were re-sent (order number matches existing records but with different sealed unit IDs):</p>
+            <ul>
+                {"".join(f"<li>{item}</li>" for item in formatted_resends)}
+            </ul>
+            <p>Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        </body>
+        </html>
+        """
+
+        self._send_email(recipients, subject, body)
+
+    def _send_email(self, recipients, subject, body):
+        """Send email to recipients"""
         msg = MIMEMultipart('alternative')
         msg['From'] = f"VinylPro Notifications <{self.sender_email}>"
         msg['Subject'] = subject
@@ -108,32 +145,29 @@ class EmailNotifier:
                 # استفاده از SSL
                 with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port) as server:
                     server.login(self.sender_email, self.sender_password)
-                    self._send_emails(server, msg, recipients,body)
+                    self._send_emails(server, msg, recipients, body)
             else:
                 # استفاده از STARTTLS
                 with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
                     server.starttls()  # فعال‌سازی TLS
                     server.login(self.sender_email, self.sender_password)
-                    self._send_emails(server, msg, recipients,body)
+                    self._send_emails(server, msg, recipients, body)
                     
         except Exception as e:
             self.logger.error(f"SMTP connection failed: {str(e)}")
-            # برای دیباگ می‌توانید traceback کامل را هم لاگ کنید
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
 
     def _send_emails(self, server, msg, recipients, body):
-        """ارسال ایمیل‌ها به لیست دریافت‌کنندگان"""
+        """Send emails to list of recipients"""
         for recipient in recipients:
             try:
-                # Create a new message for each recipient to avoid header issues
                 recipient_msg = MIMEMultipart('alternative')
                 recipient_msg['From'] = msg['From']
                 recipient_msg['Subject'] = msg['Subject']
                 recipient_msg['X-Priority'] = msg['X-Priority']
                 recipient_msg['To'] = recipient
                 
-                # Attach the HTML body
                 html_part = MIMEText(body, 'html')
                 recipient_msg.attach(html_part)
                 
@@ -142,9 +176,8 @@ class EmailNotifier:
             except Exception as e:
                 self.logger.error(f"Failed to send email to {recipient}: {str(e)}")
 
-
     def get_recipients_for_table(self, table_name):
-        """دریافت لیست ایمیل‌های مربوط به نوع جدول با لاگ‌گیری دقیق"""
+        """Get email recipients for specific table type"""
         recipients = []
         table_type = self._determine_table_type(table_name)
         if not table_type:
@@ -166,12 +199,11 @@ class EmailNotifier:
         return recipients
 
     def _determine_table_type(self, table_name):
-        """تعیین نوع جدول با تطابق دقیق‌تر"""
+        """Determine table type based on name"""
         table_name = table_name.lower().strip()
         
-        # الگوهای تطابق
         patterns = {
-            'frame': ['frame', 'framereport'],
+            'frame': ['frame', 'framereport', 'framescutting'],
             'glass': ['glass', 'glassreport', 'glazing'],
             'rush': ['rush', 'urgent']
         }
