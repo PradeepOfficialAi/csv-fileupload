@@ -71,25 +71,23 @@ class EmailNotifier:
 
         table_display_name = 'Glass' if 'glass' in table_name.lower() else 'Frame'
         
-        subject = f"🔴 DUPLICATE {table_display_name} Order Alert {datetime.now().strftime('[%Y-%m-%d %I:%M %p]')}"
+        subject = f"🔴 Alert! duplicate {table_display_name} Order {datetime.now().strftime('[%Y-%m-%d %I:%M %p]')}"
         
         # Format duplicates for email body
         formatted_duplicates = []
         for dup in duplicates:
             formatted_duplicates.append(
                 f"Order: {dup['order']}, Sealed Unit ID: {dup['sealed_unit_id']}, "
-                f"Original Date: {dup['original_date']}"
+                f"Date: {dup['original_date']}"
             )
             
         body = f"""
         <html>
         <body>
             <h2>Duplicate {table_display_name} Orders Detected</h2>
-            <p>The following orders were identified as duplicates (both order number and sealed unit ID match existing records):</p>
             <ul>
                 {"".join(f"<li>{item}</li>" for item in formatted_duplicates)}
             </ul>
-            <p>Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         </body>
         </html>
         """
@@ -108,24 +106,22 @@ class EmailNotifier:
 
         table_display_name = 'Glass' if 'glass' in table_name.lower() else 'Frame'
         
-        subject = f"⚠️ RE-SENT {table_display_name} Order Notification {datetime.now().strftime('[%Y-%m-%d %I:%M %p]')}"
+        subject = f"⚠️ Alert! re send {table_display_name} Order {datetime.now().strftime('[%Y-%m-%d %I:%M %p]')}"
         
         # Format resends for email body
         formatted_resends = []
         for resend in resends:
             formatted_resends.append(
-                f"Order: {resend['order']}, Original Date: {resend['original_date']}"
+                f"Order: {resend['order']}, Date: {resend['original_date']}"
             )
             
         body = f"""
         <html>
         <body>
-            <h2>Re-Sent {table_display_name} Orders Detected</h2>
-            <p>The following orders were re-sent (order number matches existing records but with different sealed unit IDs):</p>
+            <h2>Re-Send {table_display_name} Orders Detected</h2>
             <ul>
                 {"".join(f"<li>{item}</li>" for item in formatted_resends)}
             </ul>
-            <p>Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         </body>
         </html>
         """
@@ -135,7 +131,7 @@ class EmailNotifier:
     def _send_email(self, recipients, subject, body):
         """Send email to recipients"""
         msg = MIMEMultipart('alternative')
-        msg['From'] = f"VinylPro Notifications <{self.sender_email}>"
+        msg['From'] = f"vinylpro notification <{self.sender_email}>"
         msg['Subject'] = subject
         msg['X-Priority'] = '1'
 
