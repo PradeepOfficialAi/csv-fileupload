@@ -21,15 +21,18 @@ class FolderMonitor:
         self.path_settings = {
             'input1': {
                 'input': config_manager.get_setting('paths', 'path1'),
-                'move': config_manager.get_setting('paths', 'move_path1')
+                'move': config_manager.get_setting('paths', 'move_path1'),
+                'is_network': False  # Assume local unless specified
             },
             'input2': {
                 'input': config_manager.get_setting('paths', 'path2'),
-                'move': config_manager.get_setting('paths', 'move_path2')
+                'move': config_manager.get_setting('paths', 'move_path2'),
+                'is_network': True  # Assume path2 is the network share
             },
             'pdf': {
                 'input': config_manager.get_setting('paths', 'source_pdf'),
-                'move': config_manager.get_setting('paths', 'move_pdf')
+                'move': config_manager.get_setting('paths', 'move_pdf'),
+                'is_network': False
             }
         }
 
@@ -37,6 +40,12 @@ class FolderMonitor:
         for name, paths in self.path_settings.items():
             if not paths['input'] or not paths['move']:
                 raise ValueError(f"Path configuration incomplete for {name}")
+            try:
+                Path(paths['input']).mkdir(parents=True, exist_ok=True)
+                Path(paths['move']).mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                self.logger.error(f"Failed to access/create path {paths['input']} or {paths['move']}: {str(e)}")
+                raise
 
         # Initialize services
         self.db_handler = DatabaseService(
@@ -63,24 +72,39 @@ class FolderMonitor:
         # Track processed files to prevent duplicate processing
         self.processed_files = set()
         self.lock = threading.Lock()
+        self.poll_interval = 30  # Seconds, matches previous log intervals
 
     def start(self, interval=None):
-        """Start monitoring service with optional interval"""
+        """Start monitoring service with event-based and polling for network shares"""
         if interval is not None:
-            self.interval = interval
-        """Start monitoring service using only event-based system"""
+            self.poll_interval = interval
+        
         self.running = True
-        self.logger.info("Starting folder monitoring service (event-based only)")
+        self.logger.info("Starting folder monitoring service (event-based + polling for network shares)")
         
         event_handler = FileHandler(self)
         
-        # Setup observers for each input path
-        for paths in self.path_settings.values():
+        # Setup observers for event-based monitoring
+        for name, paths in self.path_settings.items():
             input_dir = Path(paths['input'])
-            input_dir.mkdir(parents=True, exist_ok=True)
-            self.observer.schedule(event_handler, str(input_dir), recursive=False)
-        
+            try:
+                input_dir.mkdir(parents=True, exist_ok=True)
+                self.observer.schedule(event_handler, str(input_dir), recursive=False)
+                self.logger.info(f"Monitoring {name} at {input_dir} (event-based)")
+            except Exception as e:
+                self.logger.error(f"Failed to monitor {input_dir}: {str(e)}")
+
+        # Start observer
         self.observer.start()
+
+        # Start polling thread for network share (input2)
+        if self.path_settings['input2']['is_network']:
+            polling_thread = threading.Thread(
+                target=self._poll_network_share,
+                daemon=True
+            )
+            polling_thread.start()
+            self.logger.info(f"Started polling for network share at {self.path_settings['input2']['input']}")
 
     def stop(self):
         """Stop monitoring service"""
@@ -90,14 +114,32 @@ class FolderMonitor:
             self.observer.join()
         self.logger.info("Folder monitoring service stopped")
 
+    def _poll_network_share(self):
+        """Poll network share folder for new CSV files"""
+        network_input = Path(self.path_settings['input2']['input'])
+        while self.running:
+            try:
+                self.logger.debug(f"Polling network share: {network_input}")
+                for file_path in network_input.glob("*.csv"):
+                    if file_path.is_file():
+                        self.process_file(file_path)
+                time.sleep(self.poll_interval)
+            except Exception as e:
+                self.logger.error(f"Error polling network share {network_input}: {str(e)}")
+                time.sleep(self.poll_interval)  # Retry after delay
+
     def process_file(self, file_path):
         """Process a single file with thread-safe checks"""
+        file_path = Path(file_path)
+        file_key = str(file_path)
+
         with self.lock:
             # Skip if already processed or processing
-            if str(file_path) in self.processed_files:
+            if file_key in self.processed_files:
+                self.logger.debug(f"Skipping already processed file: {file_path}")
                 return False
             
-            self.processed_files.add(str(file_path))
+            self.processed_files.add(file_key)
         
         try:
             # Determine which path group this file belongs to
@@ -105,23 +147,38 @@ class FolderMonitor:
                 input_path = Path(paths['input'])
                 if str(file_path).startswith(str(input_path)):
                     move_dir = Path(paths['move'])
+                    is_network = paths['is_network']
                     break
             else:
                 self.logger.warning(f"File {file_path} not in any monitored directory")
                 return False
 
+            # Wait longer for network shares to ensure file is fully written
+            wait_time = 2.0 if is_network else 0.5
+            time.sleep(wait_time)
+
+            # Verify file exists and is accessible
+            if not file_path.exists():
+                self.logger.error(f"File {file_path} no longer exists")
+                return False
+
             processor = self.processor_factory.get_processor(file_path.name)
+            if not processor:
+                self.logger.warning(f"No processor found for file: {file_path}")
+                return False
             
-            # Process the file (upload to DB and handle duplicates)
+            # Process the file
+            self.logger.info(f"Processing file: {file_path}")
             success = processor.process(file_path, move_dir)
             
             if not success:
+                self.logger.error(f"Processing failed for {file_path}")
                 return False
                 
             # Prepare destination path
             dest_path = self._get_unique_filename(file_path, move_dir)
             
-            # Handle file transfer with fallback strategies
+            # Handle file transfer
             transfer_success = self._transfer_file_safely(file_path, dest_path)
             
             return transfer_success
@@ -131,8 +188,7 @@ class FolderMonitor:
             return False
         finally:
             with self.lock:
-                if str(file_path) in self.processed_files:
-                    self.processed_files.remove(str(file_path))
+                self.processed_files.discard(file_key)
 
     def _get_unique_filename(self, src_path, dest_dir):
         """Generate unique filename if destination exists"""
@@ -154,9 +210,10 @@ class FolderMonitor:
             # Create destination directory if not exists
             dst.parent.mkdir(parents=True, exist_ok=True)
             
-            # First try atomic rename (fastest if possible)
+            # Try atomic rename
             try:
                 src.rename(dst)
+                self.logger.info(f"Moved file {src} to {dst}")
                 return True
             except OSError:
                 pass
@@ -171,12 +228,14 @@ class FolderMonitor:
             # Try to remove source
             try:
                 src.unlink()
+                self.logger.info(f"Moved file {src} to {dst}")
             except Exception as e:
                 self.logger.warning(f"Could not delete source file {src}: {str(e)}")
                 # Mark for manual cleanup
                 processed_path = src.with_suffix(src.suffix + '.processed')
                 try:
                     src.rename(processed_path)
+                    self.logger.info(f"Marked file as processed: {processed_path}")
                 except Exception:
                     pass
             
@@ -203,11 +262,12 @@ class FileHandler(FileSystemEventHandler):
         """Handle file creation events"""
         if not event.is_directory and event.src_path.lower().endswith('.csv'):
             file_path = Path(event.src_path)
+            self.folder_monitor.logger.debug(f"Detected new file: {file_path}")
             
-            # Wait briefly to ensure file is fully written
-            time.sleep(0.5)
+            # Wait to ensure file is fully written
+            time.sleep(0.5)  # Adjusted in process_file for network shares
             
-            # Process in a new thread to avoid blocking
+            # Process in a new thread
             threading.Thread(
                 target=self.folder_monitor.process_file,
                 args=(file_path,),
@@ -215,6 +275,6 @@ class FileHandler(FileSystemEventHandler):
             ).start()
     
     def on_moved(self, event):
-        """Handle file move events (some systems report copy as move)"""
+        """Handle file move events"""
         if not event.is_directory and event.dest_path.lower().endswith('.csv'):
             self.on_created(event)
