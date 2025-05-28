@@ -5,6 +5,7 @@ import mysql.connector
 from mysql.connector import Error
 import csv
 import os
+import shutil
 
 class FRAMESCUTTINGProcessor(BaseProcessor):
     def __init__(self, db_handler, email_notifier, logger):
@@ -47,10 +48,21 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
                 return False
 
             success = self.upload_csv_data(self.get_table_name(), str(file_path), self.email_notifier)
+            
+            if success:
+                # Move file to move_dir after successful processing
+                try:
+                    destination = move_dir / file_path.name
+                    shutil.move(str(file_path), str(destination))
+                    self.logger.info(f"Moved file to {destination}")
+                except Exception as e:
+                    self.logger.error(f"Failed to move file {file_path} to {move_dir}: {str(e)}")
+                    return False
+            
             return success
             
         except Exception as e:
-            self.logger.error(f"Error processing FRAMESCUTTING file: {str(e)}")
+            self.logger.error(f"Error processing FRAMESCUTTING file {file_path}: {str(e)}")
             return False
         finally:
             self.disconnect()
@@ -78,7 +90,6 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
                 if not has_expected_headers:
                     # Create temp file with headers
                     import tempfile
-                    import shutil
                     temp_dir = tempfile.gettempdir()
                     temp_path = os.path.join(temp_dir, os.path.basename(csv_file_path) + ".tmp")
                     
@@ -95,7 +106,15 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
                         self.logger.error(f"Error adding headers to {csv_file_path}: {str(e)}")
                         return False
             
-            # 3. Now process the file with headers
+            # 3. Read all rows and perform duplicate/resend checks
+            rows_to_insert = []
+            new_rows = 0
+            duplicate_rows = 0
+            duplicates = []
+            resend_orders = []
+            key_field = None
+            date_field = 'U'
+
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
                 csvreader = csv.DictReader(csvfile)
                 actual_headers = [h.strip().replace(' ', '_') for h in csvreader.fieldnames]
@@ -109,14 +128,7 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
                     if not self._create_table(table_name, actual_headers):
                         return False
 
-                # 4. Process rows
-                new_rows = 0
-                duplicate_rows = 0
-                duplicates = []
-                resend_orders = []
-                key_field = None
-                date_field = 'U'
-
+                # Collect all rows and check for duplicates/resends
                 for row in csvreader:
                     try:
                         complete_row = {h: row.get(h, '') for h in actual_headers}
@@ -170,40 +182,52 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
                                 key_field = 'F'
                                 self.logger.debug(f"Resend found: order={order_id}, original_date={original_date}")
 
-                        # Insert the record (always insert, regardless of duplicate/resend)
-                        columns = ', '.join([f'`{h}`' for h in actual_headers])
-                        placeholders = ', '.join(['%s'] * len(actual_headers))
-                        values = [complete_row[h] for h in actual_headers]
-                        
-                        insert_query = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
-                        cursor.execute(insert_query, values)
+                        # Store row for later insertion
+                        rows_to_insert.append(complete_row)
                         new_rows += 1
 
                     except Exception as e:
                         self.logger.error(f"Row processing error for row {complete_row}: {str(e)}")
                         continue
-                
-                self.connection.commit()
-                self.logger.info(f"Inserted {new_rows} rows, identified {duplicate_rows} duplicates/resends")
-                
-                # 5. Send email notifications
-                if email_notifier:
-                    if duplicates:
-                        self.logger.info(f"Sending duplicate notification for {len(duplicates)} duplicates")
-                        email_notifier.notify_duplicate(
-                            table_name=table_name,
-                            duplicates=duplicates,
-                            key_field=key_field
-                        )
-                    if resend_orders:
-                        self.logger.info(f"Sending resend notification for {len(resend_orders)} resends")
-                        email_notifier.notify_resend(
-                            table_name=table_name,
-                            resends=resend_orders,
-                            key_field='F'
-                        )
+
+            # 4. Insert all rows in a single batch
+            if rows_to_insert:
+                try:
+                    columns = ', '.join([f'`{h}`' for h in actual_headers])
+                    placeholders = ', '.join(['%s'] * len(actual_headers))
+                    insert_query = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
                     
-                return True
+                    # Batch insert all rows
+                    for complete_row in rows_to_insert:
+                        values = [complete_row[h] for h in actual_headers]
+                        cursor.execute(insert_query, values)
+                    
+                    self.connection.commit()
+                    self.logger.info(f"Inserted {new_rows} rows, identified {duplicate_rows} duplicates/resends")
+                
+                except Exception as e:
+                    self.logger.error(f"Batch insert failed for {csv_file_path}: {str(e)}")
+                    self.connection.rollback()
+                    return False
+
+            # 5. Send email notifications
+            if email_notifier:
+                if duplicates:
+                    self.logger.info(f"Sending duplicate notification for {len(duplicates)} duplicates")
+                    email_notifier.notify_duplicate(
+                        table_name=table_name,
+                        duplicates=duplicates,
+                        key_field=key_field
+                    )
+                if resend_orders:
+                    self.logger.info(f"Sending resend notification for {len(resend_orders)} resends")
+                    email_notifier.notify_resend(
+                        table_name=table_name,
+                        resends=resend_orders,
+                        key_field='F'
+                    )
+                    
+            return True
                 
         except Exception as e:
             self.logger.error(f"Upload failed for {csv_file_path}: {str(e)}")
