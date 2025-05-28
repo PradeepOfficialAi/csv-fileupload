@@ -33,10 +33,12 @@ class FolderMonitor:
             }
         }
 
-        # Validate paths
+        # Validate paths and resolve to absolute paths
         for name, paths in self.path_settings.items():
             if not paths['input'] or not paths['move']:
                 raise ValueError(f"Path configuration incomplete for {name}")
+            paths['input'] = str(Path(paths['input']).resolve())
+            paths['move'] = str(Path(paths['move']).resolve())
 
         # Initialize services
         self.db_handler = DatabaseService(
@@ -65,21 +67,25 @@ class FolderMonitor:
         self.lock = threading.Lock()
 
     def start(self, interval=None):
-        """Start monitoring service with optional interval"""
-        if interval is not None:
-            self.interval = interval
-        """Start monitoring service using only event-based system"""
+        """Start monitoring service and process existing files"""
         self.running = True
-        self.logger.info("Starting folder monitoring service (event-based only)")
+        self.logger.info("Starting folder monitoring service (event-based and processing existing files)")
         
         event_handler = FileHandler(self)
         
-        # Setup observers for each input path
-        for paths in self.path_settings.values():
+        # Setup observers for each input path but don't start yet
+        for path_name, paths in self.path_settings.items():
             input_dir = Path(paths['input'])
             input_dir.mkdir(parents=True, exist_ok=True)
+            self.logger.info(f"Monitoring directory: {input_dir}")
             self.observer.schedule(event_handler, str(input_dir), recursive=False)
         
+        # Process existing .csv files before starting observer
+        self.logger.info("Processing existing files before starting file system monitoring")
+        self._process_existing_files()
+        
+        # Start observer after processing existing files
+        self.logger.info("Starting file system observer")
         self.observer.start()
 
     def stop(self):
@@ -90,11 +96,50 @@ class FolderMonitor:
             self.observer.join()
         self.logger.info("Folder monitoring service stopped")
 
+    def _process_existing_files(self):
+        """Process all existing .csv files in monitored directories"""
+        self.logger.info("Scanning for existing .csv files in monitored directories")
+        for path_name, paths in self.path_settings.items():
+            input_dir = Path(paths['input'])
+            if not input_dir.exists():
+                self.logger.warning(f"Input directory {input_dir} does not exist")
+                continue
+            
+            # Iterate over .csv files (case-insensitive)
+            csv_pattern = '*.[cC][sS][vV]'
+            files_found = False
+            for file_path in input_dir.glob(csv_pattern):
+                files_found = True
+                if file_path.is_file():
+                    try:
+                        # Check file accessibility
+                        if not os.access(file_path, os.R_OK):
+                            self.logger.warning(f"File {file_path} is not readable, skipping")
+                            continue
+                        if file_path.stat().st_size == 0:
+                            self.logger.warning(f"File {file_path} is empty, skipping")
+                            continue
+                        self.logger.info(f"Processing existing file: {file_path}")
+                        # Process synchronously to avoid overlap with observer
+                        self.process_file(file_path)
+                    except Exception as e:
+                        self.logger.error(f"Error accessing file {file_path}: {str(e)}")
+                        continue
+            
+            if not files_found:
+                self.logger.info(f"No .csv files found in directory {input_dir}")
+
     def process_file(self, file_path):
         """Process a single file with thread-safe checks"""
         with self.lock:
             # Skip if already processed or processing
             if str(file_path) in self.processed_files:
+                self.logger.info(f"Skipping already processed file: {file_path}")
+                return False
+            
+            # Check if file still exists
+            if not file_path.exists():
+                self.logger.warning(f"File {file_path} no longer exists, skipping")
                 return False
             
             self.processed_files.add(str(file_path))
@@ -110,12 +155,14 @@ class FolderMonitor:
                 self.logger.warning(f"File {file_path} not in any monitored directory")
                 return False
 
+            self.logger.info(f"Starting processing for file: {file_path}")
             processor = self.processor_factory.get_processor(file_path.name)
             
             # Process the file (upload to DB and handle duplicates)
             success = processor.process(file_path, move_dir)
             
             if not success:
+                self.logger.error(f"Failed to process file {file_path}")
                 return False
                 
             # Prepare destination path
@@ -123,6 +170,11 @@ class FolderMonitor:
             
             # Handle file transfer with fallback strategies
             transfer_success = self._transfer_file_safely(file_path, dest_path)
+            
+            if transfer_success:
+                self.logger.info(f"Successfully processed and transferred file: {file_path}")
+            else:
+                self.logger.error(f"Failed to transfer file: {file_path}")
             
             return transfer_success
             
@@ -157,6 +209,7 @@ class FolderMonitor:
             # First try atomic rename (fastest if possible)
             try:
                 src.rename(dst)
+                self.logger.info(f"Moved file to {dst}")
                 return True
             except OSError:
                 pass
@@ -171,6 +224,7 @@ class FolderMonitor:
             # Try to remove source
             try:
                 src.unlink()
+                self.logger.info(f"Moved file to {dst}")
             except Exception as e:
                 self.logger.warning(f"Could not delete source file {src}: {str(e)}")
                 # Mark for manual cleanup
@@ -207,6 +261,7 @@ class FileHandler(FileSystemEventHandler):
             # Wait briefly to ensure file is fully written
             time.sleep(0.5)
             
+            self.folder_monitor.logger.info(f"Detected new file creation: {file_path}")
             # Process in a new thread to avoid blocking
             threading.Thread(
                 target=self.folder_monitor.process_file,
@@ -215,6 +270,21 @@ class FileHandler(FileSystemEventHandler):
             ).start()
     
     def on_moved(self, event):
-        """Handle file move events (some systems report copy as move)"""
+        """Handle file move events, but skip if already processed"""
         if not event.is_directory and event.dest_path.lower().endswith('.csv'):
-            self.on_created(event)
+            file_path = Path(event.dest_path)
+            with self.folder_monitor.lock:
+                if str(file_path) in self.folder_monitor.processed_files:
+                    self.folder_monitor.logger.info(f"Skipping moved file {file_path} as it was already processed")
+                    return
+            
+            self.folder_monitor.logger.info(f"Detected moved file: {file_path}")
+            # Wait briefly to ensure file is fully written
+            time.sleep(0.5)
+            
+            # Process in a new thread to avoid blocking
+            threading.Thread(
+                target=self.folder_monitor.process_file,
+                args=(file_path,),
+                daemon=True
+            ).start()
