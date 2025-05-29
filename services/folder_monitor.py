@@ -1,8 +1,6 @@
 import os
 import time
 import threading
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 from pathlib import Path
 from services.database_service import DatabaseService
 from services.email_notifier import EmailNotifier
@@ -15,7 +13,6 @@ class FolderMonitor:
         self.logger = Logger("FolderMonitor")
         self.config_manager = config_manager
         self.running = False
-        self.observer = Observer()
         
         # Initialize paths
         self.path_settings = {
@@ -66,39 +63,38 @@ class FolderMonitor:
         self.processed_files = set()
         self.lock = threading.Lock()
 
-    def start(self, interval=None):
-        """Start monitoring service and process existing files"""
+    def start(self, interval=30):
+        """Start monitoring service with periodic polling"""
         self.running = True
-        self.logger.info("Starting folder monitoring service (event-based and processing existing files)")
+        self.logger.info(f"Starting folder monitoring service (polling every {interval} seconds)")
         
-        event_handler = FileHandler(self)
-        
-        # Setup observers for each input path but don't start yet
-        for path_name, paths in self.path_settings.items():
-            input_dir = Path(paths['input'])
-            input_dir.mkdir(parents=True, exist_ok=True)
-            self.logger.info(f"Monitoring directory: {input_dir}")
-            self.observer.schedule(event_handler, str(input_dir), recursive=False)
-        
-        # Process existing .csv files before starting observer
-        self.logger.info("Processing existing files before starting file system monitoring")
+        # Process existing .csv files at startup
+        self.logger.info("Processing existing files at startup")
         self._process_existing_files()
         
-        # Start observer after processing existing files
-        self.logger.info("Starting file system observer")
-        self.observer.start()
+        # Start polling in a separate thread
+        polling_thread = threading.Thread(
+            target=self._poll_directories,
+            args=(interval,),
+            daemon=True
+        )
+        polling_thread.start()
 
     def stop(self):
         """Stop monitoring service"""
         self.running = False
-        if hasattr(self, 'observer') and self.observer:
-            self.observer.stop()
-            self.observer.join()
         self.logger.info("Folder monitoring service stopped")
 
+    def _poll_directories(self, interval):
+        """Periodically scan directories for new .csv files"""
+        while self.running:
+            self.logger.info("Polling directories for new .csv files")
+            self._process_existing_files()
+            time.sleep(interval)
+
     def _process_existing_files(self):
-        """Process all existing .csv files in monitored directories"""
-        self.logger.info("Scanning for existing .csv files in monitored directories")
+        """Process all unprocessed .csv files in monitored directories"""
+        self.logger.info("Scanning for unprocessed .csv files in monitored directories")
         for path_name, paths in self.path_settings.items():
             input_dir = Path(paths['input'])
             if not input_dir.exists():
@@ -119,8 +115,12 @@ class FolderMonitor:
                         if file_path.stat().st_size == 0:
                             self.logger.warning(f"File {file_path} is empty, skipping")
                             continue
-                        self.logger.info(f"Processing existing file: {file_path}")
-                        # Process synchronously to avoid overlap with observer
+                        # Check if file is still being written (optional)
+                        if self._is_file_locked(file_path):
+                            self.logger.info(f"File {file_path} is locked, skipping for now")
+                            continue
+                        self.logger.info(f"Processing file: {file_path}")
+                        # Process synchronously to avoid race conditions
                         self.process_file(file_path)
                     except Exception as e:
                         self.logger.error(f"Error accessing file {file_path}: {str(e)}")
@@ -128,6 +128,15 @@ class FolderMonitor:
             
             if not files_found:
                 self.logger.info(f"No .csv files found in directory {input_dir}")
+
+    def _is_file_locked(self, file_path):
+        """Check if file is still being written (e.g., locked by another process)"""
+        try:
+            # Attempt to open the file in exclusive mode
+            with open(file_path, 'a') as f:
+                return False
+        except IOError:
+            return True
 
     def process_file(self, file_path):
         """Process a single file with thread-safe checks"""
@@ -158,7 +167,7 @@ class FolderMonitor:
             self.logger.info(f"Starting processing for file: {file_path}")
             processor = self.processor_factory.get_processor(file_path.name)
             
-            # Process the file (upload to DB and handle duplicates)
+            # Process the file (upload to DB)
             success = processor.process(file_path, move_dir)
             
             if not success:
@@ -245,46 +254,3 @@ class FolderMonitor:
                 except Exception:
                     pass
             return False
-
-
-class FileHandler(FileSystemEventHandler):
-    """Custom event handler for file system events"""
-    def __init__(self, folder_monitor):
-        super().__init__()
-        self.folder_monitor = folder_monitor
-    
-    def on_created(self, event):
-        """Handle file creation events"""
-        if not event.is_directory and event.src_path.lower().endswith('.csv'):
-            file_path = Path(event.src_path)
-            
-            # Wait briefly to ensure file is fully written
-            time.sleep(0.5)
-            
-            self.folder_monitor.logger.info(f"Detected new file creation: {file_path}")
-            # Process in a new thread to avoid blocking
-            threading.Thread(
-                target=self.folder_monitor.process_file,
-                args=(file_path,),
-                daemon=True
-            ).start()
-    
-    def on_moved(self, event):
-        """Handle file move events, but skip if already processed"""
-        if not event.is_directory and event.dest_path.lower().endswith('.csv'):
-            file_path = Path(event.dest_path)
-            with self.folder_monitor.lock:
-                if str(file_path) in self.folder_monitor.processed_files:
-                    self.folder_monitor.logger.info(f"Skipping moved file {file_path} as it was already processed")
-                    return
-            
-            self.folder_monitor.logger.info(f"Detected moved file: {file_path}")
-            # Wait briefly to ensure file is fully written
-            time.sleep(0.5)
-            
-            # Process in a new thread to avoid blocking
-            threading.Thread(
-                target=self.folder_monitor.process_file,
-                args=(file_path,),
-                daemon=True
-            ).start()
