@@ -132,8 +132,8 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
                 for row in csvreader:
                     try:
                         complete_row = {h: row.get(h, '') for h in actual_headers}
-                        order_id = complete_row.get('F', '')  # F is order
-                        sealed_unit_id = complete_row.get('J', '')  # J is sealed_unit_id
+                        order_id = complete_row.get('J', '')  # J is order
+                        sealed_unit_id = complete_row.get('F', '')  # F is sealed_unit_id
                         is_duplicate = False
 
                         # Check for duplicates (order and sealed_unit_id match)
@@ -144,7 +144,7 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
                             WHERE `F` = %s AND `J` = %s
                             LIMIT 1
                             """
-                            cursor.execute(query, (order_id, sealed_unit_id))
+                            cursor.execute(query, (sealed_unit_id, order_id))
                             result = cursor.fetchone()
                             
                             if result:

@@ -59,6 +59,7 @@ class EmailNotifier:
             self.logger.error(f"Failed to load email settings: {str(e)}")
             return []
 
+
     def notify_duplicate(self, table_name, duplicates, key_field):
         """Notify about duplicate orders (both order and sealed_unit_id match)"""
         if not self.enabled:
@@ -73,11 +74,18 @@ class EmailNotifier:
         
         subject = f"🔴 Alert! duplicate {table_display_name} Order {datetime.now().strftime('[%Y-%m-%d %I:%M %p]')}"
         
-        # Format duplicates for email body
-        formatted_duplicates = []
+        # Deduplicate orders based on 'order' field
+        unique_duplicates = {}
         for dup in duplicates:
+            order = dup['order']
+            if order not in unique_duplicates:
+                unique_duplicates[order] = dup
+        
+        # Format unique duplicates for email body
+        formatted_duplicates = []
+        for dup in unique_duplicates.values():
             formatted_duplicates.append(
-                f"Order: {dup['order']}, Sealed Unit ID: {dup['sealed_unit_id']}, "
+                f"Order: {dup['order']}, "
                 f"Date: {dup['original_date']}"
             )
             
@@ -108,9 +116,16 @@ class EmailNotifier:
         
         subject = f"⚠️ Alert! re send {table_display_name} Order {datetime.now().strftime('[%Y-%m-%d %I:%M %p]')}"
         
-        # Format resends for email body
-        formatted_resends = []
+        # Deduplicate resends based on 'order' field
+        unique_resends = {}
         for resend in resends:
+            order = resend['order']
+            if order not in unique_resends:
+                unique_resends[order] = resend
+        
+        # Format unique resends for email body
+        formatted_resends = []
+        for resend in unique_resends.values():
             formatted_resends.append(
                 f"Order: {resend['order']}, Date: {resend['original_date']}"
             )

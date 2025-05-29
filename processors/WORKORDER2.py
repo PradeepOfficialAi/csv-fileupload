@@ -7,14 +7,14 @@ import csv
 import os
 import shutil
 
-class WORKORDERProcessor(BaseProcessor):
+class WORKORDER2Processor(BaseProcessor):
     def __init__(self, db_handler, email_notifier, logger):
         super().__init__(db_handler, email_notifier, logger)
         self.config_manager = ConfigManager()
         self.connection = None
 
     def get_table_name(self):
-        return "workorder"
+        return "workorder2"
 
     def connect(self):
         """Establish database connection"""
@@ -42,7 +42,7 @@ class WORKORDERProcessor(BaseProcessor):
 
     def process(self, file_path: Path, move_dir: Path) -> bool:
         try:
-            self.logger.info(f"Processing WORKORDER file: {file_path}")
+            self.logger.info(f"Processing WORKORDER2 file: {file_path}")
             
             if not self.connect():
                 return False
@@ -62,7 +62,7 @@ class WORKORDERProcessor(BaseProcessor):
             return success
             
         except Exception as e:
-            self.logger.error(f"Error processing WORKORDER file {file_path}: {str(e)}")
+            self.logger.error(f"Error processing WORKORDER2 file {file_path}: {str(e)}")
             return False
         finally:
             self.disconnect()
@@ -146,7 +146,7 @@ class WORKORDERProcessor(BaseProcessor):
                         # Check for duplicates
                         query = """
                         SELECT * 
-                        FROM `workorder` 
+                        FROM `workorder2` 
                         WHERE `ORDER #` = %s 
                         """
                         cursor.execute(query, (order_id,))  # Pass order_id as a tuple
@@ -155,7 +155,7 @@ class WORKORDERProcessor(BaseProcessor):
                         if result:
                             # Delete existing rows with this ORDER #
                             delete_query = """
-                            DELETE FROM `workorder` 
+                            DELETE FROM `workorder2` 
                             WHERE `ORDER #` = %s 
                             """
                             cursor.execute(delete_query, (order_id,))
