@@ -29,7 +29,8 @@ class ConfigManager:
                         "email": "admin@example.com",
                         "glass": True,
                         "frame": True,
-                        "rush": True
+                        "rush": True,
+                        "casingcutting": False
                     }
                 ])
             }

@@ -8,6 +8,7 @@ import json
 import configparser
 from pathlib import Path
 from services.logger import Logger
+from utils.display_name import get_table_display_name
 
 class EmailNotifier:
     def __init__(self, smtp_server=None, smtp_port=None, sender_email=None, sender_password=None):
@@ -70,7 +71,7 @@ class EmailNotifier:
             self.logger.info(f"No recipients configured for table: {table_name}")
             return
 
-        table_display_name = 'Glass' if 'glass' in table_name.lower() else 'Frame'
+        table_display_name = get_table_display_name(table_name)
         
         subject = f"🔴 Alert! duplicate {table_display_name} Order {datetime.now().strftime('[%Y-%m-%d %I:%M %p]')}"
         
@@ -112,7 +113,7 @@ class EmailNotifier:
             self.logger.info(f"No recipients configured for table: {table_name}")
             return
 
-        table_display_name = 'Glass' if 'glass' in table_name.lower() else 'Frame'
+        table_display_name = get_table_display_name(table_name)
         
         subject = f"⚠️ Alert! re send {table_display_name} Order {datetime.now().strftime('[%Y-%m-%d %I:%M %p]')}"
         
@@ -216,7 +217,8 @@ class EmailNotifier:
         patterns = {
             'frame': ['frame', 'framereport', 'framescutting'],
             'glass': ['glass', 'glassreport', 'glazing'],
-            'rush': ['rush', 'urgent']
+            'rush': ['rush', 'urgent'],
+            'casingcutting': ['casingcutting']
         }
         
         for table_type, keywords in patterns.items():

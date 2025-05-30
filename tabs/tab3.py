@@ -57,7 +57,7 @@ class Tab3(ttk.Frame):
     
     def create_email_table(self):
         """Create and configure the email table"""
-        columns = ("Email", "Glass", "Frame", "Rush", "Actions")
+        columns = ("Email", "Glass", "Frame", "Rush", "Casingcutting", "Actions")
         self.tree = ttk.Treeview(
             self, 
             columns=columns, 
@@ -72,6 +72,7 @@ class Tab3(ttk.Frame):
             "Glass": 80,
             "Frame": 80,
             "Rush": 80,
+            "Casingcutting": 80,
             "Actions": 120
         }
         
@@ -121,7 +122,8 @@ class Tab3(ttk.Frame):
                         'email': email['email'].strip().lower(),
                         'glass': bool(email.get('glass', False)),
                         'frame': bool(email.get('frame', False)),
-                        'rush': bool(email.get('rush', False))
+                        'rush': bool(email.get('rush', False)),
+                        'casingcutting': bool(email.get('casingcutting', False))
                     })
             self.email_settings = valid_emails
             self.logger.info(f"Loaded {len(self.email_settings)} valid email configurations")
@@ -150,6 +152,7 @@ class Tab3(ttk.Frame):
                     "✓" if email_data["glass"] else "✗",
                     "✓" if email_data["frame"] else "✗",
                     "✓" if email_data["rush"] else "✗",
+                    "✓" if email_data["casingcutting"] else "✗",
                     "Edit | Delete"
                 ),
                 tags=(email_data["email"], "edit_btn", "delete_btn")
@@ -193,11 +196,13 @@ class Tab3(ttk.Frame):
         glass_var = tk.BooleanVar()
         frame_var = tk.BooleanVar()
         rush_var = tk.BooleanVar()
+        casingcutting_var = tk.BooleanVar()
         
         ttk.Checkbutton(options_frame, text="Glass", variable=glass_var).pack(anchor='w')
         ttk.Checkbutton(options_frame, text="Frame", variable=frame_var).pack(anchor='w')
         ttk.Checkbutton(options_frame, text="Rush", variable=rush_var).pack(anchor='w')
-        
+        ttk.Checkbutton(options_frame, text="Casingcutting", variable=casingcutting_var).pack(anchor='w')
+
         # Buttons
         btn_frame = ttk.Frame(dialog)
         btn_frame.grid(row=2, column=0, columnspan=2, pady=10)
@@ -210,6 +215,7 @@ class Tab3(ttk.Frame):
                 glass_var.get(),
                 frame_var.get(),
                 rush_var.get(),
+                casingcutting_var.get(),
                 dialog
             )
         ).pack(side='left', padx=5)
@@ -276,10 +282,12 @@ class Tab3(ttk.Frame):
         glass_var = tk.BooleanVar(value=email_data["glass"])
         frame_var = tk.BooleanVar(value=email_data["frame"])
         rush_var = tk.BooleanVar(value=email_data["rush"])
+        casingcutting_var = tk.BooleanVar(value=email_data["casingcutting"])
         
         ttk.Checkbutton(options_frame, text="Glass", variable=glass_var).pack(anchor='w')
         ttk.Checkbutton(options_frame, text="Frame", variable=frame_var).pack(anchor='w')
         ttk.Checkbutton(options_frame, text="Rush", variable=rush_var).pack(anchor='w')
+        ttk.Checkbutton(options_frame, text="casingcutting", variable=casingcutting_var).pack(anchor='w')
         
         # Buttons
         btn_frame = ttk.Frame(dialog)
@@ -293,6 +301,7 @@ class Tab3(ttk.Frame):
                 glass_var.get(),
                 frame_var.get(),
                 rush_var.get(),
+                casingcutting_var.get(),
                 dialog
             )
         ).pack(side='left', padx=5)
@@ -309,12 +318,13 @@ class Tab3(ttk.Frame):
             command=dialog.destroy
         ).pack(side='left', padx=5)
     
-    def update_email(self, email_data: Dict, glass: bool, frame: bool, rush: bool, dialog: tk.Toplevel):
+    def update_email(self, email_data: Dict, glass: bool, frame: bool, rush: bool, casingcutting:bool , dialog: tk.Toplevel):
         """Update existing email in config"""
         email_data.update({
             "glass": glass,
             "frame": frame,
-            "rush": rush
+            "rush": rush,
+            "casingcutting": casingcutting
         })
         
         self.save_emails_to_config()
@@ -381,7 +391,8 @@ class Tab3(ttk.Frame):
                 "email": str(email["email"]).strip().lower(),
                 "glass": bool(email["glass"]),
                 "frame": bool(email["frame"]),
-                "rush": bool(email["rush"])
+                "rush": bool(email["rush"]),
+                "casingcutting": bool(email["casingcutting"])
             } for email in self.email_settings]  # تغییر به email_settings
             
             # Save as JSON string
