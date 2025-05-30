@@ -81,30 +81,33 @@ class WORKORDER2Processor(BaseProcessor):
                 'DESCRIPTION', 'OPTIONS', 'QTY', 'LINE #1', 'NOTE'
             ]
 
-            # 2. Check if CSV file already has the expected headers
+            # 2. Check if CSV file has the expected headers
+            has_expected_headers = False
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
                 first_line = csvfile.readline().strip()
                 first_line_headers = [h.strip() for h in first_line.split(',')]
                 has_expected_headers = first_line_headers == headers
+
+            # If headers are missing, create a temporary file with headers
+            if not has_expected_headers:
+                import tempfile
+                temp_dir = tempfile.gettempdir()
+                temp_path = os.path.join(temp_dir, os.path.basename(csv_file_path) + ".tmp")
                 
-                if not has_expected_headers:
-                    # Create temp file with headers
-                    import tempfile
-                    temp_dir = tempfile.gettempdir()
-                    temp_path = os.path.join(temp_dir, os.path.basename(csv_file_path) + ".tmp")
+                try:
+                    with open(csv_file_path, 'r', encoding='utf-8') as infile, \
+                         open(temp_path, 'w', newline='', encoding='utf-8') as outfile:
+                        # Write expected headers
+                        outfile.write(','.join(headers) + '\n')
+                        # Copy all lines (assuming no headers in original)
+                        outfile.writelines(infile.readlines())
                     
-                    try:
-                        with open(temp_path, 'w', newline='', encoding='utf-8') as temp_file:
-                            temp_file.write(','.join(headers) + '\n')
-                            temp_file.write(first_line + '\n')  # Write the first line as data
-                            temp_file.writelines(csvfile.readlines())  # Write the rest
-                        
-                        # Replace original file with temp file
-                        shutil.move(temp_path, csv_file_path)
-                        self.logger.warning(f"Added headers to CSV file: {headers}")
-                    except Exception as e:
-                        self.logger.error(f"Error adding headers to {csv_file_path}: {str(e)}")
-                        return False
+                    # Replace original file with temp file
+                    shutil.move(temp_path, csv_file_path)
+                    self.logger.warning(f"Added headers to CSV file: {headers}")
+                except Exception as e:
+                    self.logger.error(f"Error adding headers to {csv_file_path}: {str(e)}")
+                    return False
             
             # 3. Read all rows and process duplicates
             rows_to_insert = []
@@ -149,7 +152,7 @@ class WORKORDER2Processor(BaseProcessor):
                         FROM `workorder2` 
                         WHERE `ORDER #` = %s 
                         """
-                        cursor.execute(query, (order_id,))  # Pass order_id as a tuple
+                        cursor.execute(query, (order_id,))
                         result = cursor.fetchall()
                         
                         if result:
