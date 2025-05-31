@@ -78,36 +78,33 @@ class WORKORDER2Processor(BaseProcessor):
             # 1. Define expected headers
             headers = [
                 'ORDER #', 'PO', 'TAG', 'DEALER', 'ORDER DATE', 'DUE DATE', 'WINDOW DESCRIPTION',
-                'DESCRIPTION', 'OPTIONS', 'QTY', 'LINE #1', 'NOTE'
+                'DESCRIPTION', 'QTY', 'LINE #1', 'NOTE'
             ]
 
-            # 2. Check if CSV file has the expected headers
-            has_expected_headers = False
+            # 2. Check if CSV file already has the expected headers
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
                 first_line = csvfile.readline().strip()
                 first_line_headers = [h.strip() for h in first_line.split(',')]
                 has_expected_headers = first_line_headers == headers
-
-            # If headers are missing, create a temporary file with headers
-            if not has_expected_headers:
-                import tempfile
-                temp_dir = tempfile.gettempdir()
-                temp_path = os.path.join(temp_dir, os.path.basename(csv_file_path) + ".tmp")
                 
-                try:
-                    with open(csv_file_path, 'r', encoding='utf-8') as infile, \
-                         open(temp_path, 'w', newline='', encoding='utf-8') as outfile:
-                        # Write expected headers
-                        outfile.write(','.join(headers) + '\n')
-                        # Copy all lines (assuming no headers in original)
-                        outfile.writelines(infile.readlines())
+                if not has_expected_headers:
+                    # Create temp file with headers
+                    import tempfile
+                    temp_dir = tempfile.gettempdir()
+                    temp_path = os.path.join(temp_dir, os.path.basename(csv_file_path) + ".tmp")
                     
-                    # Replace original file with temp file
-                    shutil.move(temp_path, csv_file_path)
-                    self.logger.warning(f"Added headers to CSV file: {headers}")
-                except Exception as e:
-                    self.logger.error(f"Error adding headers to {csv_file_path}: {str(e)}")
-                    return False
+                    try:
+                        with open(temp_path, 'w', newline='', encoding='utf-8') as temp_file:
+                            temp_file.write(','.join(headers) + '\n')
+                            temp_file.write(first_line + '\n')  # Write the first line as data
+                            temp_file.writelines(csvfile.readlines())  # Write the rest
+                        
+                        # Replace original file with temp file
+                        shutil.move(temp_path, csv_file_path)
+                        self.logger.warning(f"Added headers to CSV file: {headers}")
+                    except Exception as e:
+                        self.logger.error(f"Error adding headers to {csv_file_path}: {str(e)}")
+                        return False
             
             # 3. Read all rows and process duplicates
             rows_to_insert = []
@@ -127,8 +124,7 @@ class WORKORDER2Processor(BaseProcessor):
                     if not self._create_table(table_name, actual_headers):
                         return False
 
-                # Exclude 'OPTIONS' from database columns
-                db_columns = [h for h in actual_headers if h != 'OPTIONS']
+                db_columns = [h for h in actual_headers]
                 
                 # Collect all rows and handle duplicates
                 for row in csvreader:
@@ -136,11 +132,6 @@ class WORKORDER2Processor(BaseProcessor):
                         # Convert None or empty values to empty strings
                         complete_row = {h: row.get(h, '') or '' for h in actual_headers}
                         order_id = complete_row.get('ORDER #', '')
-
-                        # Combine DESCRIPTION and OPTIONS
-                        description = complete_row.get('DESCRIPTION', '')
-                        options = complete_row.get('OPTIONS', '')
-                        complete_row['DESCRIPTION'] = f"{description}##{options}" if options else description
 
                         if not order_id:
                             self.logger.warning(f"Skipping row with missing ORDER #: {complete_row}")
@@ -152,7 +143,7 @@ class WORKORDER2Processor(BaseProcessor):
                         FROM `workorder2` 
                         WHERE `ORDER #` = %s 
                         """
-                        cursor.execute(query, (order_id,))
+                        cursor.execute(query, (order_id,))  # Pass order_id as a tuple
                         result = cursor.fetchall()
                         
                         if result:
@@ -210,7 +201,7 @@ class WORKORDER2Processor(BaseProcessor):
         try:
             cursor = self.connection.cursor()
             
-            # Map Python types to SQL types, excluding OPTIONS
+            # Map Python types to SQL types,
             type_mapping = {
                 'id': 'INT NOT NULL AUTO_INCREMENT',
                 'ORDER #': 'TEXT NOT NULL DEFAULT ""',
@@ -226,12 +217,12 @@ class WORKORDER2Processor(BaseProcessor):
                 'NOTE': 'TEXT NOT NULL DEFAULT ""'
             }
             
-            # Build column definitions, excluding OPTIONS
+            # Build column definitions, 
             columns = []
             columns.append("id INT NOT NULL AUTO_INCREMENT")  # Add ID column first
             
             for header in headers:
-                if header in type_mapping and header != 'OPTIONS':
+                if header in type_mapping :
                     sql_type = type_mapping[header]
                     columns.append(f"`{header}` {sql_type}")
             

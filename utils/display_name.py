@@ -7,9 +7,9 @@ def get_table_display_name(table_name):
     """
     # Dictionary of custom display names
     display_name_map = {
-        'glass': 'Glass',
-        'frame': 'Frame',
-        'casingcutting': 'Casingcutting',
+        'glassreport': 'Glass',
+        'framescutting': 'Frame',
+        'casingcutting': 'Casing',
     }
 
     # Normalize table_name to lowercase for lookup
