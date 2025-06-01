@@ -220,7 +220,8 @@ class EmailNotifier:
             'rush': ['rush', 'urgent'],
             'casingcutting': ['casingcutting'],
             'optlabel': ['optlabel'],
-            'casing': ['casing']
+            'casing': ['casing'],
+            'extention': ['extention']
         }
         
         for table_type, keywords in patterns.items():
