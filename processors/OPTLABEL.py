@@ -7,14 +7,14 @@ import csv
 import os
 import shutil
 
-class CASINGCUTTINGProcessor(BaseProcessor):
+class OPTLABELProcessor(BaseProcessor):
     def __init__(self, db_handler, email_notifier, logger):
         super().__init__(db_handler, email_notifier, logger)
         self.config_manager = ConfigManager()
         self.connection = None
 
     def get_table_name(self):
-        return "casingcutting"
+        return "optlabel"
 
     def connect(self):
         """Establish database connection"""
@@ -42,7 +42,7 @@ class CASINGCUTTINGProcessor(BaseProcessor):
 
     def process(self, file_path: Path, move_dir: Path) -> bool:
         try:
-            self.logger.info(f"Processing CASINGCUTTING file: {file_path}")
+            self.logger.info(f"Processing OPTLABEL file: {file_path}")
             
             if not self.connect():
                 return False
@@ -62,13 +62,13 @@ class CASINGCUTTINGProcessor(BaseProcessor):
             return success
             
         except Exception as e:
-            self.logger.error(f"Error processing CASINGCUTTING file {file_path}: {str(e)}")
+            self.logger.error(f"Error processing OPTLABEL file {file_path}: {str(e)}")
             return False
         finally:
             self.disconnect()
 
     def upload_csv_data(self, table_name, csv_file_path):
-        """Upload CSV data to the casingcutting table, checking for resends before inserts"""
+        """Upload CSV data to the optlabel table, checking for duplicate BARCODEs"""
         if not self.connection or not self.connection.is_connected():
             if not self.connect():
                 return False
@@ -77,9 +77,10 @@ class CASINGCUTTINGProcessor(BaseProcessor):
         try:
             # 1. Define expected headers
             headers = [
-                'H_W', 'BIN', 'ORDER_LINE', 'MATERIAL', 'LABEL', 'ORDER', 'WINDOW',
-                'WINDOWS_SIZE', 'ROSSETTE', 'CASING LINE', 'COMPANY', 'PO', 'DATE',
-                'TIME', 'USER'
+                'PRINT SEQUENCE', 'ORDER NUMBER', 'OT', 'SPACER', 'WINDOW TYPE', 'BARCODE',
+                'COMPNAY NAME', 'PICE ID', 'WIDTH', 'HEIGHT', 'GLASS TYPE', 'NRC',
+                'CHAMBERS', 'MODEL', 'U FACTOR', 'SHGC', 'VT', 'ER', 'GRILL TYPE',
+                'ENERGY STAR', 'MODEL2', 'DATE', 'TIME'
             ]
 
             # 2. Check if CSV file has the expected headers
@@ -102,23 +103,20 @@ class CASINGCUTTINGProcessor(BaseProcessor):
                 try:
                     with open(csv_file_path, 'r', encoding='utf-8') as infile, \
                          open(temp_path, 'w', newline='', encoding='utf-8') as outfile:
-                        # Write expected headers
                         outfile.write(','.join(headers) + '\n')
-                        # Copy all lines, assuming no headers in original
                         infile.seek(0)
                         outfile.writelines(infile.readlines())
                     
-                    # Replace original file with temp file
                     shutil.move(temp_path, csv_file_path)
                     self.logger.warning(f"Added headers to CSV file: {headers}")
                 except Exception as e:
                     self.logger.error(f"Error adding headers to {csv_file_path}: {str(e)}")
                     return False
             
-            # 3. Collect all rows and check for resends
+            # 3. Collect all rows and check for duplicates
             rows_to_insert = []
-            order_ids = set()  # Track unique ORDER values in the file
-            resends = []
+            barcode_order_map = {}  # Map BARCODE to ORDER NUMBER for duplicates
+            duplicates = []
             
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
                 csvreader = csv.DictReader(csvfile)
@@ -129,45 +127,46 @@ class CASINGCUTTINGProcessor(BaseProcessor):
                 # Check for duplicate header rows
                 normalized_headers = [h.lower().strip() for h in headers]
                 for row in csvreader:
-                    # Check if the row is a duplicate header
                     row_values = [str(row.get(h, '')).lower().strip() for h in actual_headers]
                     if row_values == normalized_headers:
                         self.logger.warning(f"Skipping duplicate header row: {row_values}")
                         continue
                     
                     try:
-                        # Convert None or empty values to empty strings
                         complete_row = {h: row.get(h, '') or '' for h in actual_headers}
-                        order_id = complete_row.get('ORDER', '')
+                        barcode = complete_row.get('BARCODE', '')
+                        order_number = complete_row.get('ORDER NUMBER', '')
 
-                        if not order_id:
-                            self.logger.warning(f"Skipping row with missing ORDER: {complete_row}")
+                        if not barcode:
+                            self.logger.warning(f"Skipping row with missing BARCODE: {complete_row}")
                             continue
 
-                        # Collect unique ORDER values
-                        order_ids.add(order_id)
+                        barcode_order_map[barcode] = order_number
                         rows_to_insert.append(complete_row)
 
                     except Exception as e:
                         self.logger.error(f"Row processing error for row {complete_row}: {str(e)}")
                         continue
 
-            # 4. Check for existing orders in the database
+            # 4. Check for existing BARCODEs in the database
             cursor = self.connection.cursor()
-            for order_id in order_ids:
+            for barcode in barcode_order_map:
                 try:
-                    query = "SELECT `ORDER`, `DATE` FROM `casingcutting` WHERE `ORDER` = %s LIMIT 1"
-                    cursor.execute(query, (order_id,))
-                    existing_order = cursor.fetchone()
+                    query = "SELECT `BARCODE`, `ORDER NUMBER`, `DATE` FROM `optlabel` WHERE `BARCODE` = %s LIMIT 1"
+                    cursor.execute(query, (barcode,))
+                    existing_record = cursor.fetchone()
                     
-                    if existing_order:
-                        resends.append({
-                            'order': order_id,
-                            'original_date': existing_order[1] or ''
+                    if existing_record:
+                        original_date = existing_record[2] if existing_record[2] else 'Unknown'
+                        duplicates.append({
+                            'order': barcode_order_map[barcode],
+                            'barcode': barcode,
+                            'original_date': original_date,
+                            'type': 'DUPLICATE'
                         })
-                        self.logger.info(f"Found existing ORDER for resend: {order_id}")
+                        self.logger.info(f"Found duplicate BARCODE: {barcode} with ORDER NUMBER: {barcode_order_map[barcode]}")
                 except Exception as e:
-                    self.logger.error(f"Error checking ORDER {order_id}: {str(e)}")
+                    self.logger.error(f"Error checking BARCODE {barcode}: {str(e)}")
                     continue
 
             # 5. Create table if it doesn't exist
@@ -176,7 +175,7 @@ class CASINGCUTTINGProcessor(BaseProcessor):
                 if not self._create_table(table_name, actual_headers):
                     return False
 
-            # 6. Insert all rows in a batch
+            # 6. Insert all rows, replacing duplicates
             rows_inserted = 0
             if rows_to_insert:
                 try:
@@ -186,10 +185,12 @@ class CASINGCUTTINGProcessor(BaseProcessor):
                     insert_query = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
                     
                     for complete_row in rows_to_insert:
+                        barcode = complete_row.get('BARCODE', '')
+                        # Insert new row
                         values = [complete_row[h] for h in db_columns]
                         cursor.execute(insert_query, values)
                         rows_inserted += 1
-                        self.logger.info(f"Inserted row for ORDER: {complete_row.get('ORDER', '')}")
+                        self.logger.info(f"Inserted row for BARCODE: {barcode}")
                     
                     self.connection.commit()
                     self.logger.info(f"Inserted {rows_inserted} rows into {table_name}")
@@ -199,13 +200,13 @@ class CASINGCUTTINGProcessor(BaseProcessor):
                     self.connection.rollback()
                     return False
 
-            # 7. Send resend notification if any resends were found
-            if resends:
+            # 7. Send duplicate notification if any duplicates were found
+            if duplicates:
                 try:
-                    self.email_notifier.notify_resend(table_name, resends, 'ORDER')
-                    self.logger.info(f"Sent resend notification for {len(resends)} orders")
+                    self.email_notifier.notify_duplicate(table_name, duplicates, 'BARCODE')
+                    self.logger.info(f"Sent duplicate notification for {len(duplicates)} BARCODEs")
                 except Exception as e:
-                    self.logger.error(f"Failed to send resend notification: {str(e)}")
+                    self.logger.error(f"Failed to send duplicate notification: {str(e)}")
 
             return True
         
@@ -228,17 +229,16 @@ class CASINGCUTTINGProcessor(BaseProcessor):
             type_mapping = {
                 'id': 'INT NOT NULL AUTO_INCREMENT PRIMARY KEY'
             }
-            # All other columns are TEXT NOT NULL DEFAULT ""
             for header in headers:
                 if header not in type_mapping:
                     type_mapping[header] = 'TEXT NOT NULL DEFAULT ""'
             
             # Build column definitions
             columns = []
-            columns.append("id INT NOT NULL AUTO_INCREMENT PRIMARY KEY")  # Add ID column first
+            columns.append("id INT NOT NULL AUTO_INCREMENT PRIMARY KEY")
             
             for header in headers:
-                if header in type_mapping and header != 'id':  # Skip id as it's already added
+                if header in type_mapping and header != 'id':
                     sql_type = type_mapping[header]
                     columns.append(f"`{header}` {sql_type}")
             

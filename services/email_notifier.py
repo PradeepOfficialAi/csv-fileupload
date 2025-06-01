@@ -218,7 +218,8 @@ class EmailNotifier:
             'frame': ['frame', 'framereport', 'framescutting'],
             'glass': ['glass', 'glassreport', 'glazing'],
             'rush': ['rush', 'urgent'],
-            'casingcutting': ['casingcutting']
+            'casingcutting': ['casingcutting'],
+            'optlabel': ['optlabel']
         }
         
         for table_type, keywords in patterns.items():

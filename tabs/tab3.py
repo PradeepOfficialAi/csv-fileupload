@@ -12,17 +12,20 @@ class Tab3(ttk.Frame):
         self.config_manager = config_manager
         self.logger = Logger("Tab3")
         self.email_notifier = email_notifier
-        self.email_settings = []  # تغییر نام متغیر به email_settings برای یکپارچگی
+        self.email_settings = []
+        # Define dynamic list of tables
+        self.TABLES = [
+            'glass', 'frame', 'rush', 'casingcutting', 'optlabel',
+        ]
         self.setup_ui()
         self.load_emails()
-        
-    
+
     def setup_ui(self):
         """Setup all UI components"""
         self.create_title()
         self.create_controls()
         self.create_email_table()
-    
+
     def create_title(self):
         """Create title label"""
         ttk.Label(
@@ -30,7 +33,7 @@ class Tab3(ttk.Frame):
             text="Email Management", 
             font=('Tahoma', 12, 'bold')
         ).pack(pady=10)
-    
+
     def create_controls(self):
         """Create control buttons"""
         btn_frame = ttk.Frame(self)
@@ -47,17 +50,10 @@ class Tab3(ttk.Frame):
             text="Refresh",
             command=self.refresh_emails
         ).pack(side='left', padx=5)
-        
-        # ttk.Button(
-        #     btn_frame,
-        #     text="Test Email",
-        #     command=self.test_email_config,
-        #     state='normal' if self.email_notifier else 'disabled'
-        # ).pack(side='right', padx=5)
-    
+
     def create_email_table(self):
-        """Create and configure the email table"""
-        columns = ("Email", "Glass", "Frame", "Rush", "Casingcutting", "Actions")
+        """Create and configure the email table with only Email and Actions"""
+        columns = ("Email", "Actions")
         self.tree = ttk.Treeview(
             self, 
             columns=columns, 
@@ -68,11 +64,7 @@ class Tab3(ttk.Frame):
         
         # Configure columns
         col_widths = {
-            "Email": 250,
-            "Glass": 80,
-            "Frame": 80,
-            "Rush": 80,
-            "Casingcutting": 80,
+            "Email": 300,
             "Actions": 120
         }
         
@@ -93,15 +85,12 @@ class Tab3(ttk.Frame):
         # Configure tags for action buttons
         self.tree.tag_bind("edit_btn", "<Button-1>", self.on_edit_action)
         self.tree.tag_bind("delete_btn", "<Button-1>", self.on_delete_action)
-    
+
     def load_emails(self):
-        """بارگذاری ایمیل‌ها از تنظیمات با مدیریت خطا"""
+        """Load emails from settings with error handling"""
         try:
-            # دریافت داده ایمیل‌ها از تنظیمات
             emails_data = self.config_manager.get_setting('emails', 'emails', '[]')
-            # اگر داده یک رشته است، آن را به لیست تبدیل کنید
             if isinstance(emails_data, str):
-                # حذف کاراکترهای غیرضروری و تبدیل به لیست
                 try:
                     emails_data = emails_data.strip()
                     if emails_data.startswith('[') and emails_data.endswith(']'):
@@ -114,17 +103,17 @@ class Tab3(ttk.Frame):
             else:
                 self.email_settings = emails_data if isinstance(emails_data, list) else []
             
-            # اعتبارسنجی ساختار ایمیل‌ها
+            # Validate and normalize email settings
             valid_emails = []
             for email in self.email_settings:
                 if isinstance(email, dict) and 'email' in email:
-                    valid_emails.append({
-                        'email': email['email'].strip().lower(),
-                        'glass': bool(email.get('glass', False)),
-                        'frame': bool(email.get('frame', False)),
-                        'rush': bool(email.get('rush', False)),
-                        'casingcutting': bool(email.get('casingcutting', False))
-                    })
+                    normalized_email = {
+                        'email': email['email'].strip().lower()
+                    }
+                    # Initialize all tables dynamically
+                    for table in self.TABLES:
+                        normalized_email[table] = bool(email.get(table, False))
+                    valid_emails.append(normalized_email)
             self.email_settings = valid_emails
             self.logger.info(f"Loaded {len(self.email_settings)} valid email configurations")
             self.refresh_email_table()
@@ -132,37 +121,32 @@ class Tab3(ttk.Frame):
         except Exception as e:
             self.logger.error(f"Failed to load email settings: {str(e)}")
             self.email_settings = []
-    
+
     def refresh_emails(self):
         """Reload emails from config"""
         self.load_emails()
         self.refresh_email_table()
         messagebox.showinfo("Refreshed", "Email list has been refreshed")
-    
+
     def refresh_email_table(self):
         """Refresh the email table view"""
         self.tree.delete(*self.tree.get_children())
         
-        for email_data in self.email_settings:  # تغییر از self.emails به self.email_settings
+        for email_data in self.email_settings:
             self.tree.insert(
                 "", 
                 "end", 
                 values=(
                     email_data["email"],
-                    "✓" if email_data["glass"] else "✗",
-                    "✓" if email_data["frame"] else "✗",
-                    "✓" if email_data["rush"] else "✗",
-                    "✓" if email_data["casingcutting"] else "✗",
                     "Edit | Delete"
                 ),
                 tags=(email_data["email"], "edit_btn", "delete_btn")
             )
-    
+
     def validate_email(self, email):
         """Validate email format with case-insensitive check"""
         if not isinstance(email, str):
             return False
-            
         email = email.strip().lower()
         pattern = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
         return re.match(pattern, email) is not None
@@ -171,10 +155,9 @@ class Tab3(ttk.Frame):
         """Check for duplicate emails (case-insensitive)"""
         if not isinstance(email, str):
             return True
-            
         email = email.strip().lower()
-        return any(e["email"].lower() == email for e in self.emails)
-    
+        return any(e["email"].lower() == email for e in self.email_settings)
+
     def show_add_email_dialog(self):
         """Show dialog to add new email"""
         dialog = tk.Toplevel(self)
@@ -188,20 +171,15 @@ class Tab3(ttk.Frame):
         email_entry.focus_set()
         
         # Notification Options
-        ttk.Label(dialog, text="Notification Types:").grid(row=1, column=0, padx=5, pady=5, sticky="ne")
+        ttk.Label(dialog, text="Notification Tables:").grid(row=1, column=0, padx=5, pady=5, sticky="ne")
         
         options_frame = ttk.Frame(dialog)
         options_frame.grid(row=1, column=1, padx=5, pady=5, sticky="w")
         
-        glass_var = tk.BooleanVar()
-        frame_var = tk.BooleanVar()
-        rush_var = tk.BooleanVar()
-        casingcutting_var = tk.BooleanVar()
-        
-        ttk.Checkbutton(options_frame, text="Glass", variable=glass_var).pack(anchor='w')
-        ttk.Checkbutton(options_frame, text="Frame", variable=frame_var).pack(anchor='w')
-        ttk.Checkbutton(options_frame, text="Rush", variable=rush_var).pack(anchor='w')
-        ttk.Checkbutton(options_frame, text="Casingcutting", variable=casingcutting_var).pack(anchor='w')
+        # Dynamically create checkboxes for each table
+        table_vars = {table: tk.BooleanVar(value=False) for table in self.TABLES}
+        for table in self.TABLES:
+            ttk.Checkbutton(options_frame, text=table.capitalize(), variable=table_vars[table]).pack(anchor='w')
 
         # Buttons
         btn_frame = ttk.Frame(dialog)
@@ -212,10 +190,7 @@ class Tab3(ttk.Frame):
             text="Save", 
             command=lambda: self.save_email(
                 email_entry.get(),
-                glass_var.get(),
-                frame_var.get(),
-                rush_var.get(),
-                casingcutting_var.get(),
+                {table: var.get() for table, var in table_vars.items()},
                 dialog
             )
         ).pack(side='left', padx=5)
@@ -225,46 +200,45 @@ class Tab3(ttk.Frame):
             text="Cancel", 
             command=dialog.destroy
         ).pack(side='left', padx=5)
-    
-    def save_email(self, email: str, glass: bool, frame: bool, rush: bool, dialog: tk.Toplevel):
+
+    def save_email(self, email: str, table_settings: Dict[str, bool], dialog: tk.Toplevel):
         """Save new email to config"""
         if not self.validate_email(email):
             messagebox.showerror("Error", "Please enter a valid email address")
             return
         
-        if any(e["email"].lower() == email.lower() for e in self.email_settings):  # تغییر به email_settings
+        if self.is_email_duplicate(email):
             messagebox.showerror("Error", "This email already exists")
             return
         
         new_email = {
-            "email": email.strip(),
-            "glass": glass,
-            "frame": frame,
-            "rush": rush
+            "email": email.strip().lower()
         }
+        # Add all table settings
+        for table in self.TABLES:
+            new_email[table] = table_settings.get(table, False)
         
-        self.email_settings.append(new_email)  # تغییر به email_settings
+        self.email_settings.append(new_email)
         self.save_emails_to_config()
         self.refresh_email_table()
         
         messagebox.showinfo("Success", "Email added successfully")
         dialog.destroy()
-    
+
     def on_edit_email(self, event=None):
         """Handle email edit request"""
         selected = self.tree.selection()
         if not selected:
             return
-            
         email = self.tree.item(selected[0], "values")[0]
         self.edit_email_dialog(email)
-    
+
     def edit_email_dialog(self, email: str):
         """Show dialog to edit existing email"""
         email_data = next((e for e in self.email_settings if e["email"] == email), None)
         if not email_data:
             return
-            
+        
         dialog = tk.Toplevel(self)
         dialog.title("Edit Email")
         dialog.resizable(False, False)
@@ -274,20 +248,15 @@ class Tab3(ttk.Frame):
         ttk.Label(dialog, text=email_data["email"]).grid(row=0, column=1, padx=5, pady=5, sticky="w")
         
         # Notification Options
-        ttk.Label(dialog, text="Notification Types:").grid(row=1, column=0, padx=5, pady=5, sticky="ne")
+        ttk.Label(dialog, text="Notification Tables:").grid(row=1, column=0, padx=5, pady=5, sticky="ne")
         
         options_frame = ttk.Frame(dialog)
         options_frame.grid(row=1, column=1, padx=5, pady=5, sticky="w")
         
-        glass_var = tk.BooleanVar(value=email_data["glass"])
-        frame_var = tk.BooleanVar(value=email_data["frame"])
-        rush_var = tk.BooleanVar(value=email_data["rush"])
-        casingcutting_var = tk.BooleanVar(value=email_data["casingcutting"])
-        
-        ttk.Checkbutton(options_frame, text="Glass", variable=glass_var).pack(anchor='w')
-        ttk.Checkbutton(options_frame, text="Frame", variable=frame_var).pack(anchor='w')
-        ttk.Checkbutton(options_frame, text="Rush", variable=rush_var).pack(anchor='w')
-        ttk.Checkbutton(options_frame, text="casingcutting", variable=casingcutting_var).pack(anchor='w')
+        # Dynamically create checkboxes for each table
+        table_vars = {table: tk.BooleanVar(value=email_data.get(table, False)) for table in self.TABLES}
+        for table in self.TABLES:
+            ttk.Checkbutton(options_frame, text=table.capitalize(), variable=table_vars[table]).pack(anchor='w')
         
         # Buttons
         btn_frame = ttk.Frame(dialog)
@@ -298,10 +267,7 @@ class Tab3(ttk.Frame):
             text="Update", 
             command=lambda: self.update_email(
                 email_data,
-                glass_var.get(),
-                frame_var.get(),
-                rush_var.get(),
-                casingcutting_var.get(),
+                {table: var.get() for table, var in table_vars.items()},
                 dialog
             )
         ).pack(side='left', padx=5)
@@ -317,14 +283,11 @@ class Tab3(ttk.Frame):
             text="Cancel", 
             command=dialog.destroy
         ).pack(side='left', padx=5)
-    
-    def update_email(self, email_data: Dict, glass: bool, frame: bool, rush: bool, casingcutting:bool , dialog: tk.Toplevel):
+
+    def update_email(self, email_data: Dict, table_settings: Dict[str, bool], dialog: tk.Toplevel):
         """Update existing email in config"""
         email_data.update({
-            "glass": glass,
-            "frame": frame,
-            "rush": rush,
-            "casingcutting": casingcutting
+            table: table_settings.get(table, False) for table in self.TABLES
         })
         
         self.save_emails_to_config()
@@ -332,41 +295,40 @@ class Tab3(ttk.Frame):
         
         messagebox.showinfo("Success", "Email updated successfully")
         dialog.destroy()
-    
+
     def on_delete_email(self, event=None):
         """Handle delete email request from keyboard"""
         selected = self.tree.selection()
         if not selected:
             return
-            
         email = self.tree.item(selected[0], "values")[0]
-        email_data = next((e for e in self.emails if e["email"] == email), None)
+        email_data = next((e for e in self.email_settings if e["email"] == email), None)
         if email_data:
             self.delete_email(email_data)
-    
+
     def on_edit_action(self, event):
         """Handle edit button click in actions column"""
         item = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
         
-        if item and col == "#5":  # Actions column
+        if item and col == "#2":  # Actions column
             values = self.tree.item(item, "values")
-            if "Edit" in values[4]:  # Check if click was on Edit
+            if "Edit" in values[1]:
                 self.on_edit_email()
-    
+
     def on_delete_action(self, event):
         """Handle delete button click in actions column"""
         item = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
         
-        if item and col == "#5":  # Actions column
+        if item and col == "#2":  # Actions column
             values = self.tree.item(item, "values")
-            if "Delete" in values[4]:  # Check if click was on Delete
+            if "Delete" in values[1]:
                 email = values[0]
-                email_data = next((e for e in self.emails if e["email"] == email), None)
+                email_data = next((e for e in self.email_settings if e["email"] == email), None)
                 if email_data:
                     self.delete_email(email_data)
-    
+
     def delete_email(self, email_data: Dict, dialog: Optional[tk.Toplevel] = None):
         """Delete email from config"""
         if not messagebox.askyesno(
@@ -374,54 +336,50 @@ class Tab3(ttk.Frame):
             f"Are you sure you want to delete {email_data['email']}?"
         ):
             return
-            
-        self.emails = [e for e in self.emails if e["email"] != email_data["email"]]
+        
+        self.email_settings = [e for e in self.email_settings if e["email"] != email_data["email"]]
         self.save_emails_to_config()
         self.refresh_email_table()
         
         messagebox.showinfo("Success", "Email deleted successfully")
         if dialog:
             dialog.destroy()
-    
+
     def save_emails_to_config(self):
         """Save emails to config with proper JSON serialization"""
         try:
-            # Convert to JSON-safe format
             email_data = [{
                 "email": str(email["email"]).strip().lower(),
-                "glass": bool(email["glass"]),
-                "frame": bool(email["frame"]),
-                "rush": bool(email["rush"]),
-                "casingcutting": bool(email["casingcutting"])
-            } for email in self.email_settings]  # تغییر به email_settings
+                **{table: bool(email.get(table, False)) for table in self.TABLES}
+            } for email in self.email_settings]
             
-            # Save as JSON string
             self.config_manager.update_setting("emails", "emails", json.dumps(email_data, indent=2))
             
         except Exception as e:
             messagebox.showerror("Save Error", f"Failed to save emails: {str(e)}")
             raise
-    
+
     def test_email_config(self):
         """Test email configuration"""
-        if not self.email_notifier or not self.emails:
+        if not self.email_notifier or not self.email_settings:
             messagebox.showwarning("Cannot Test", "No email notifier configured or no emails available")
             return
-            
+        
+        # Find an email with at least one table enabled
         test_email = next(
-            (e["email"] for e in self.emails if any([e["glass"], e["frame"], e["rush"]])),
+            (e["email"] for e in self.email_settings if any(e.get(table, False) for table in self.TABLES)),
             None
         )
         
         if not test_email:
             messagebox.showwarning("Cannot Test", "No enabled emails found for testing")
             return
-            
+        
         try:
             self.email_notifier.notify_duplicate(
-                "Test Table",
-                "TEST-123",
-                {"test": "This is a test email from the system"}
+                "test_table",
+                [{"order": "TEST-123", "barcode": "TEST-BC123"}],
+                "barcode"
             )
             messagebox.showinfo(
                 "Test Sent",
