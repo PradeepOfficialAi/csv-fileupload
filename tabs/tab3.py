@@ -16,7 +16,7 @@ class Tab3(ttk.Frame):
         # Define dynamic list of tables
         self.TABLES = [
             'glass', 'frame', 'rush', 'casingcutting', 'optlabel', 'casing',
-            'extention'
+            'extention', 'urbancutting', 'wrapping'
         ]
         self.setup_ui()
         self.load_emails()

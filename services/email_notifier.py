@@ -221,7 +221,9 @@ class EmailNotifier:
             'casingcutting': ['casingcutting'],
             'optlabel': ['optlabel'],
             'casing': ['casing'],
-            'extention': ['extention']
+            'extention': ['extention'],
+            'urbancutting': ['urbancutting'],
+            'wrapping': ['wrapping']
         }
         
         for table_type, keywords in patterns.items():
