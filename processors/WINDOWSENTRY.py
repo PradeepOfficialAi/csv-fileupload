@@ -4,10 +4,7 @@ from config.config import ConfigManager
 import mysql.connector
 from mysql.connector import Error
 import csv
-import os
 import shutil
-import tempfile
-from typing import List, Dict
 import time
 
 class WINDOWSENTRYProcessor(BaseProcessor):
@@ -76,11 +73,11 @@ class WINDOWSENTRYProcessor(BaseProcessor):
             self.disconnect()
 
     def upload_csv_data(self, table_name, csv_file_path):
-        """Upload CSV data to the windowsentry table, using ORDER_NUMBER or QUOTATION_NUMBER for duplicates"""
+        """Upload CSV data with proper duplicate handling and field updates"""
         if not self.connection or not self.connection.is_connected():
             if not self.connect():
                 return False
-        
+
         cursor = None
         try:
             # 1. Define expected headers
@@ -89,133 +86,134 @@ class WINDOWSENTRYProcessor(BaseProcessor):
                 'OPENING_QTY', 'USER_NAME', 'ORDER_DATE', 'SYSTEM', 'OUTPUT_DATE', 'DEALER NAME'
             ]
 
-            # 2. Check if CSV file has headers
-            has_headers = False
-            first_line_headers = []
+            # 2. Check CSV headers
             with open(csv_file_path, 'r', encoding='utf-8-sig') as csvfile:
                 first_line = csvfile.readline().strip()
                 first_line_headers = [h.strip() for h in first_line.split(',')]
-                normalized_first_line_headers = [h.replace('\ufeff', '').replace('"', '').lower().strip() for h in first_line_headers]
-                normalized_expected_headers = [h.lower().strip() for h in headers]
-                has_headers = normalized_first_line_headers == normalized_expected_headers
-                self.logger.info(f"CSV headers: {first_line_headers}, Normalized: {normalized_first_line_headers}, Expected: {headers}, Has headers: {has_headers}")
+                normalized_first_line_headers = [h.replace('\ufeff', '').replace('"', '').strip().upper() for h in first_line_headers]
+                normalized_expected_headers = [h.strip().upper() for h in headers]
+                
+                if normalized_first_line_headers != normalized_expected_headers:
+                    self.logger.error(f"CSV headers don't match. Found: {normalized_first_line_headers}, Expected: {normalized_expected_headers}")
+                    return False
 
-            if not has_headers:
-                self.logger.error(f"CSV file {csv_file_path} does not have expected headers: {headers}")
-                return False
-            
             # 3. Check table existence and schema
-            cursor = self.connection.cursor()
+            cursor = self.connection.cursor(dictionary=True)
             if not self._table_exists(cursor, table_name):
-                self.logger.info(f"Table '{table_name}' does not exist, attempting to create")
+                self.logger.info(f"Creating table '{table_name}'")
                 if not self._create_table(table_name, headers):
-                    self.logger.error(f"Failed to create table '{table_name}'")
                     return False
             else:
                 if not self._verify_and_fix_schema(cursor, table_name, headers):
-                    self.logger.error(f"Failed to verify or fix schema for '{table_name}'")
                     return False
 
-            # 4. Collect all rows and check ORDER_NUMBER or QUOTATION_NUMBER against database
+            # 4. Process CSV rows
             rows_to_insert = []
-            rows_to_update = []
             duplicates = []
-            
+            skipped_rows = 0
+            total_rows = 0
+
             with open(csv_file_path, 'r', encoding='utf-8-sig') as csvfile:
                 csvreader = csv.DictReader(csvfile, fieldnames=headers)
                 next(csvreader)  # Skip header row
-                self.logger.info(f"Processing CSV with columns: {headers}")
-
+                
                 for row in csvreader:
+                    total_rows += 1
                     try:
-                        complete_row = {h: row.get(h, '') or '' for h in headers}
-                        order_number = complete_row.get('ORDER_NUMBER', '').strip()
-                        quotation_number = complete_row.get('QUOTATION_NUMBER', '').strip()
+                        csv_row = {h: (row.get(h) or '').strip() for h in headers}
+                        order_number = csv_row['ORDER_NUMBER']
+                        quotation_number = csv_row['QUOTATION_NUMBER']
 
+                        # Skip if both identifiers are empty
                         if not order_number and not quotation_number:
-                            self.logger.warning(f"Skipping row with missing ORDER_NUMBER and QUOTATION_NUMBER: {complete_row}")
+                            skipped_rows += 1
                             continue
 
-                        # Determine key field and value
-                        key_field = 'ORDER_NUMBER' if order_number else 'QUOTATION_NUMBER'
-                        key_value = order_number if order_number else quotation_number
+                        # Find existing records
+                        query = """
+                            SELECT * FROM `{}` 
+                            WHERE (ORDER_NUMBER = %s AND ORDER_NUMBER != '')
+                               OR (QUOTATION_NUMBER = %s AND QUOTATION_NUMBER != '')
+                        """.format(table_name)
+                        
+                        cursor.execute(query, (order_number, quotation_number))
+                        existing_records = cursor.fetchall()
 
-                        # Check if key_value exists in database
-                        cursor.execute(f"SELECT `{key_field}` FROM `{table_name}` WHERE `{key_field}` = %s", (key_value,))
-                        exists = cursor.fetchone() is not None
+                        if existing_records:
+                            # Take the first matching record
+                            existing = existing_records[0]  # Use the first record if multiple matches
 
-                        if exists:
-                            rows_to_update.append((complete_row, key_field))
+                            # Prepare update for all fields with the new row data
+                            update_cols = []
+                            update_values = []
+                            for field in headers:
+                                update_cols.append(f"`{field}` = %s")
+                                update_values.append(csv_row[field])
+                            
+                            update_values.append(existing['id'])  # Add id for WHERE clause
+                            
+                            update_query = f"""
+                                UPDATE `{table_name}` 
+                                SET {', '.join(update_cols)}
+                                WHERE id = %s
+                            """
+                            
+                            cursor.execute(update_query, update_values)
+                            self.connection.commit()  # Commit the update immediately
+                            rows_updated = cursor.rowcount
+                            
                             duplicates.append({
-                                'order': key_value,
-                                key_field.lower(): key_value,
-                                'original_date': complete_row.get('ORDER_DATE', 'Unknown'),
-                                'type': f'DUPLICATE_{key_field.upper()}'
+                                'id': existing['id'],
+                                'order_number': existing['ORDER_NUMBER'],
+                                'quotation_number': existing['QUOTATION_NUMBER'],
+                                'changed_fields': {field: {'old': existing.get(field, ''), 'new': csv_row[field]} for field in headers},
+                                'type': 'UPDATED'
                             })
-                            self.logger.info(f"Found duplicate {key_field}: {key_value}")
+                            self.logger.info(f"Updated record ID {existing['id']} with new values: {csv_row}")
                         else:
-                            rows_to_insert.append(complete_row)
+                            rows_to_insert.append(csv_row)
+                            self.logger.debug(f"New record to insert. Order: {order_number}, Quote: {quotation_number}")
 
                     except Exception as e:
-                        self.logger.error(f"Row processing error for row {complete_row}: {str(e)}")
+                        self.logger.error(f"Error processing row {total_rows}: {str(e)}")
                         continue
 
-            # 5. Update existing rows
-            rows_updated = 0
-            if rows_to_update:
-                try:
-                    for row, key_field in rows_to_update:
-                        update_columns = [h for h in headers if h != key_field]
-                        set_clause = ', '.join([f"`{h}` = %s" for h in update_columns])
-                        update_query = f"UPDATE `{table_name}` SET {set_clause} WHERE `{key_field}` = %s"
-                        values = [row[h] for h in update_columns] + [row[key_field]]
-                        cursor.execute(update_query, values)
-                        rows_updated += cursor.rowcount
-                    
-                    self.connection.commit()
-                    self.logger.info(f"Updated {rows_updated} rows in {table_name}")
-                
-                except Exception as e:
-                    self.logger.error(f"Batch update failed for {csv_file_path}: {str(e)}")
-                    self.connection.rollback()
-                    return False
+            self.logger.info(f"Processing stats - Total: {total_rows}, Skipped: {skipped_rows}, New: {len(rows_to_insert)}, Updated: {len([d for d in duplicates if d['type'] == 'UPDATED'])}, Duplicates: {len([d for d in duplicates if d['type'] == 'DUPLICATE'])}")
 
-            # 6. Insert new rows
-            rows_inserted = 0
+            # 5. Insert new rows
             if rows_to_insert:
                 try:
-                    db_columns = headers
-                    columns = ', '.join([f'`{h}`' for h in db_columns])
-                    placeholders = ', '.join(['%s'] * len(db_columns))
+                    columns = ', '.join([f'`{h}`' for h in headers])
+                    placeholders = ', '.join(['%s'] * len(headers))
                     insert_query = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
-                    batch_values = [[complete_row[h] for h in db_columns] for complete_row in rows_to_insert]
+                    
+                    batch_values = []
+                    for row in rows_to_insert:
+                        batch_values.append([row[h] for h in headers])
+                    
                     cursor.executemany(insert_query, batch_values)
-                    rows_inserted = cursor.rowcount
+                    inserted_count = cursor.rowcount
                     self.connection.commit()
-                    self.logger.info(f"Inserted {rows_inserted} rows into {table_name}")
-                
+                    self.logger.info(f"Inserted {inserted_count} new records")
                 except Exception as e:
-                    self.logger.error(f"Batch insert failed for {csv_file_path}: {str(e)}")
+                    self.logger.error(f"Failed to insert new records: {str(e)}")
                     self.connection.rollback()
                     return False
 
-            # 7. Send duplicate :notification if any duplicates were found
+            # 6. Send notifications for updated records
             if duplicates:
                 try:
-                    for dup in duplicates:
-                        key_field = 'order_number' if 'order_number' in dup else 'quotation_number'
-                        #self.email_notifier.notify_duplicate(table_name, [dup], key_field)
-                    self.logger.info(f"Sent duplicate notification for {len(duplicates)} duplicate values")
+                    updated_records = [d for d in duplicates if d['type'] == 'UPDATED']
+                    if updated_records:
+                        #self.email_notifier.notify_updates(table_name, updated_records)
+                        self.logger.info(f"Sent notifications for {len(updated_records)} updated records")
                 except Exception as e:
-                    self.logger.error(f"Failed to send duplicate notification: {str(e)}")
-                    for dup in duplicates:
-                        key_field = 'order_number' if 'order_number' in dup else 'quotation_number'
-                        self.logger.warning(f"Duplicate not notified: {key_field}={dup[key_field]}, Order={dup['order']}")
+                    self.logger.error(f"Failed to send update notifications: {str(e)}")
 
             return True
-        
+
         except Exception as e:
-            self.logger.error(f"Upload failed for {csv_file_path}: {str(e)}")
+            self.logger.error(f"Upload failed: {str(e)}")
             if self.connection:
                 self.connection.rollback()
             return False
@@ -224,28 +222,24 @@ class WINDOWSENTRYProcessor(BaseProcessor):
                 cursor.close()
 
     def _create_table(self, table_name, headers):
-        """Create table with exact header names"""
+        """Create table with proper structure"""
         cursor = None
         try:
             cursor = self.connection.cursor()
             
-            type_mapping = {'id': 'INT NOT NULL AUTO_INCREMENT PRIMARY KEY'}
+            columns = ["`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY"]
             for header in headers:
-                if header not in type_mapping:
-                    type_mapping[header] = 'TEXT NOT NULL DEFAULT ""'
+                columns.append(f"`{header}` TEXT NOT NULL DEFAULT ''")
             
-            columns = ["id INT NOT NULL AUTO_INCREMENT PRIMARY KEY"]
-            for header in headers:
-                if header in type_mapping and header != 'id':
-                    sql_type = type_mapping[header]
-                    columns.append(f"`{header}` {sql_type}")
+            # Add indexes
+            columns.append("INDEX `idx_order_number` (`ORDER_NUMBER`(255))")
+            columns.append("INDEX `idx_quotation_number` (`QUOTATION_NUMBER`(255))")
             
             create_sql = f"CREATE TABLE `{table_name}` ({', '.join(columns)})"
-            self.logger.debug(f"Executing CREATE TABLE query: {create_sql}")
             cursor.execute(create_sql)
             
             self.connection.commit()
-            self.logger.info(f"Created table '{table_name}' with columns: {headers}")
+            self.logger.info(f"Created table '{table_name}'")
             return True
             
         except Exception as e:
@@ -256,39 +250,46 @@ class WINDOWSENTRYProcessor(BaseProcessor):
                 cursor.close()
 
     def _table_exists(self, cursor, table_name):
-        """Check if table exists in database"""
+        """Check if table exists"""
         try:
             cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
-            exists = cursor.fetchone() is not None
-            self.logger.debug(f"Table '{table_name}' exists: {exists}")
-            return exists
+            return cursor.fetchone() is not None
         except Exception as e:
-            self.logger.error(f"Error checking table existence for '{table_name}': {str(e)}")
+            self.logger.error(f"Error checking table existence: {str(e)}")
             return False
 
     def _verify_and_fix_schema(self, cursor, table_name, expected_headers):
-        """Verify table schema and add missing columns"""
+        """Verify and fix table schema"""
         try:
             cursor.execute(f"DESCRIBE `{table_name}`")
-            current_columns = [row[0] for row in cursor.fetchall()]
-            self.logger.debug(f"Current columns in '{table_name}': {current_columns}")
-
+            current_columns = [row['Field'] for row in cursor.fetchall()]
+            
             missing_columns = [h for h in expected_headers if h not in current_columns]
-            self.logger.debug(f"Missing columns in '{table_name}': {missing_columns}")
-
-            for header in missing_columns:
+            
+            for column in missing_columns:
                 try:
-                    alter_sql = f"ALTER TABLE `{table_name}` ADD `{header}` TEXT NOT NULL DEFAULT ''"
-                    self.logger.debug(f"Executing ALTER TABLE query: {alter_sql}")
-                    cursor.execute(alter_sql)
-                    self.logger.info(f"Added column '{header}' to table '{table_name}'")
+                    cursor.execute(f"ALTER TABLE `{table_name}` ADD COLUMN `{column}` TEXT NOT NULL DEFAULT ''")
+                    self.logger.info(f"Added missing column '{column}'")
                 except Exception as e:
-                    self.logger.error(f"Failed to add column '{header}' to '{table_name}': {str(e)}")
+                    self.logger.error(f"Failed to add column '{column}': {str(e)}")
                     return False
-
-            self.connection.commit()
+            
+            # Verify indexes
+            try:
+                cursor.execute(f"SHOW INDEX FROM `{table_name}` WHERE Key_name = 'idx_order_number'")
+                if not cursor.fetchone():
+                    cursor.execute(f"CREATE INDEX `idx_order_number` ON `{table_name}` (`ORDER_NUMBER`(255))")
+                
+                cursor.execute(f"SHOW INDEX FROM `{table_name}` WHERE Key_name = 'idx_quotation_number'")
+                if not cursor.fetchone():
+                    cursor.execute(f"CREATE INDEX `idx_quotation_number` ON `{table_name}` (`QUOTATION_NUMBER`(255))")
+                
+                self.connection.commit()
+            except Exception as e:
+                self.logger.warning(f"Could not create indexes: {str(e)}")
+            
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to verify/fix schema for '{table_name}': {str(e)}")
+            self.logger.error(f"Schema verification failed: {str(e)}")
             return False
