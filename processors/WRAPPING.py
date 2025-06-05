@@ -150,7 +150,7 @@ class WRAPPINGProcessor(BaseProcessor):
                 for row in rows_to_insert:
                     if row['LineNumber'] in existing_line_numbers:
                         duplicates.append({
-                            'order': row.get('OrderNumber', 'Unknown'),
+                            'order': row.get('LineNumber', 'Unknown'),
                             'original_date':  row.get('Date', 'Unknown'),
                             'type': 'DUPLICATE'
                         })
