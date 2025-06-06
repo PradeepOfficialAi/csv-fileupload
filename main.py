@@ -4,6 +4,7 @@ from tabs.tab1 import Tab1
 from tabs.tab2 import Tab2
 from tabs.tab3 import Tab3
 from tabs.tab4 import Tab4
+from tabs.tab5 import Tab5
 from config.config import ConfigManager
 from services.database_service import DatabaseService
 from services.email_notifier import EmailNotifier
@@ -18,7 +19,7 @@ class MainApplication(tk.Tk):
         # تنظیمات اولیه پنجره
         self.title("CSV File Uploader")
         self.geometry("1000x700")
-        self.minsize(800, 600)
+        self.minsize(800, 800)
         
         # مدیریت تنظیمات و سرویس‌ها
         self._initialize_services()
@@ -69,7 +70,8 @@ class MainApplication(tk.Tk):
             'upload': Tab1(self.notebook, self.config_manager, self.db_handler, self.email_notifier),
             'log': Tab2(self.notebook, self.config_manager, self.db_handler),
             'mails': Tab3(self.notebook, self.config_manager, self.email_notifier),
-            'monitoring': Tab4(self.notebook, self.config_manager)
+            'monitoring': Tab4(self.notebook, self.config_manager),
+            'options': Tab5(self.notebook, self.config_manager, self.db_handler)
         }
         
         # اضافه کردن تب‌ها به نوت‌بوک
@@ -77,6 +79,7 @@ class MainApplication(tk.Tk):
         self.notebook.add(self.tabs['log'], text="Log Viewer")
         self.notebook.add(self.tabs['mails'], text="Email Settings")
         self.notebook.add(self.tabs['monitoring'], text="System Monitoring")
+        self.notebook.add(self.tabs['options'], text="Database Tools")
     
     def _create_menu(self):
         """ایجاد منوی برنامه"""

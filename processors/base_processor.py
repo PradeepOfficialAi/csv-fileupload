@@ -3,7 +3,7 @@ from pathlib import Path
 
 class BaseProcessor(ABC):
     def __init__(self, db_service, email_notifier, logger):
-        self.db_service = db_service  # تغییر از db_handler به db_service
+        self.db_service = db_service 
         self.email_notifier = email_notifier
         self.logger = logger
     

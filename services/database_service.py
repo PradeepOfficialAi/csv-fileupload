@@ -4,6 +4,8 @@ from pathlib import Path
 from services.logger import Logger
 import csv
 import os
+from typing import List, Dict, Optional, Any, Union
+
 
 class DatabaseService:
     def __init__(self, host, database, user, password, port=3306):
@@ -16,10 +18,14 @@ class DatabaseService:
             'port': port
         }
         self.connection = None
+        self.connect()
 
     def connect(self):
         """Establish database connection"""
         try:
+            if self.connection and self.connection.is_connected():
+                return True
+                
             self.connection = mysql.connector.connect(**self.config)
             if self.connection.is_connected():
                 self.logger.info(f"Connected to MySQL database '{self.config['database']}'")
@@ -35,19 +41,32 @@ class DatabaseService:
             self.logger.info("Database connection closed")
 
     def execute_query(self, query, params=None):
-        """Execute a SQL query"""
+        """Execute query with MariaDB-specific handling"""
+        if not self.test_connection():
+            self.logger.error("No database connection")
+            return False
+            
+        cursor = None
         try:
             cursor = self.connection.cursor()
+            
+            # Log the query before execution
+            self.logger.debug(f"Executing query: {query}")
+            
             cursor.execute(query, params or ())
+            
             if query.strip().lower().startswith('select'):
                 return cursor.fetchall()
+                
             self.connection.commit()
-            return True
+            return cursor.rowcount
+            
         except Error as e:
-            self.logger.error(f"Query execution failed: {str(e)}")
+            self.logger.error(f"Query failed (MariaDB): {str(e)}")
+            self.connection.rollback()
             return False
         finally:
-            if 'cursor' in locals():
+            if cursor:
                 cursor.close()
 
     def upload_csv_data(self, table_name, csv_file_path, email_notifier=None):
@@ -257,3 +276,156 @@ class DatabaseService:
             #'default': ['order', 'field1', 'field2', 'field3', 'quantity']
         }
         return default_headers.get(table_type)
+
+    
+    def test_connection(self) -> bool:
+        """Test database connection"""
+        try:
+            if self.connection and self.connection.is_connected():
+                return True
+            return self.connect()
+        except Error as e:
+            self.logger.error(f"Connection test failed: {str(e)}")
+            return False
+
+    def get_tables(self) -> List[str]:
+        """Get list of all tables in the database"""
+        if not self.test_connection():
+            self.logger.error("Cannot get tables - no database connection")
+            return []
+            
+        cursor = None
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("SHOW TABLES")
+            tables = [table[0] for table in cursor.fetchall()]
+            return tables
+        except Error as e:
+            self.logger.error(f"Failed to get tables: {str(e)}")
+            return []
+        finally:
+            if cursor:
+                cursor.close()
+
+    def get_columns(self, table_name: str) -> List[str]:
+        """Get list of columns for a specific table"""
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(f"DESCRIBE {table_name}")
+            columns = [column[0] for column in cursor.fetchall()]
+            cursor.close()
+            return columns
+        except Error as e:
+            self.logger.error(f"Failed to get columns for table {table_name}: {str(e)}")
+            return []
+
+    def get_table_data(
+        self,
+        table_name: str,
+        columns: Optional[List[str]] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Get sample data from a table"""
+        try:
+            cursor = self.connection.cursor(dictionary=True)
+            
+            # Build SELECT query
+            if columns:
+                cols = ", ".join([f"`{col}`" for col in columns])
+            else:
+                cols = "*"
+                
+            query = f"SELECT {cols} FROM `{table_name}` LIMIT %s"
+            cursor.execute(query, (limit,))
+            
+            results = cursor.fetchall()
+            cursor.close()
+            return results
+        except Error as e:
+            self.logger.error(f"Failed to get data from {table_name}: {str(e)}")
+            return []
+
+    
+
+    def get_table_info(self, table_name: str) -> Dict[str, Any]:
+        """Get detailed information about a table"""
+        info = {
+            'columns': [],
+            'row_count': 0,
+            'create_syntax': ''
+        }
+        
+        try:
+            # Get column details
+            cursor = self.connection.cursor(dictionary=True)
+            cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
+            info['columns'] = cursor.fetchall()
+            
+            # Get row count
+            cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
+            info['row_count'] = cursor.fetchone()[0]
+            
+            # Get create syntax
+            cursor.execute(f"SHOW CREATE TABLE `{table_name}`")
+            info['create_syntax'] = cursor.fetchone()[1]
+            
+            cursor.close()
+            return info
+            
+        except Error as e:
+            self.logger.error(f"Failed to get table info: {str(e)}")
+            return info
+
+    def execute_script(self, sql_script: str) -> Dict[str, Any]:
+        """
+        Execute a multi-statement SQL script
+        
+        Returns:
+            Dict with:
+            - 'success': Boolean indicating overall success
+            - 'executed_statements': Number of executed statements
+            - 'failed_statements': Number of failed statements
+            - 'errors': List of error messages
+        """
+        result = {
+            'success': True,
+            'executed_statements': 0,
+            'failed_statements': 0,
+            'errors': []
+        }
+        
+        if not sql_script.strip():
+            return result
+            
+        cursor = None
+        try:
+            cursor = self.connection.cursor()
+            
+            # Split script into individual statements
+            statements = [stmt.strip() for stmt in sql_script.split(';') if stmt.strip()]
+            
+            for stmt in statements:
+                try:
+                    cursor.execute(stmt)
+                    result['executed_statements'] += 1
+                except Error as e:
+                    result['failed_statements'] += 1
+                    result['errors'].append(str(e))
+                    self.logger.error(f"SQL statement failed: {str(e)}")
+                    continue
+            
+            if result['failed_statements'] > 0:
+                result['success'] = False
+                
+            self.connection.commit()
+            return result
+            
+        except Error as e:
+            self.logger.error(f"Script execution failed: {str(e)}")
+            self.connection.rollback()
+            result['success'] = False
+            result['errors'].append(str(e))
+            return result
+        finally:
+            if cursor:
+                cursor.close()
