@@ -196,7 +196,7 @@ class Tab5(ttk.Frame):
                     
                     query_empty = f"""
                     UPDATE {safe_table} 
-                    SET {safe_column} = NULL
+                    SET {safe_column} = ''
                     WHERE {safe_column} IS NOT NULL 
                     AND TRIM({safe_column}) = ''
                     """
