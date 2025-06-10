@@ -77,7 +77,7 @@ class OPTLABELProcessor(BaseProcessor):
         try:
             # 1. Define expected headers
             headers = [
-                'PRINT SEQUENCE', 'STRING NUMBER', 'OT', 'SPACER', 'WINDOW TYPE', 'BARCODE',
+                'PRINT SEQUENCE', 'ORDER NUMBER', 'OT', 'SPACER', 'WINDOW TYPE', 'BARCODE',
                 'COMPNAY NAME', 'PICE ID', 'WIDTH', 'HEIGHT', 'GLASS TYPE', 'NRC',
                 'CHAMBERS', 'MODEL', 'U FACTOR', 'SHGC', 'VT', 'ER', 'GRILL TYPE',
                 'ENERGY STAR', 'MODEL2', 'DATE', 'TIME'
