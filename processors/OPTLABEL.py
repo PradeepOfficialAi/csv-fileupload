@@ -77,7 +77,7 @@ class OPTLABELProcessor(BaseProcessor):
         try:
             # 1. Define expected headers
             headers = [
-                'PRINT SEQUENCE', 'ORDER NUMBER', 'OT', 'SPACER', 'WINDOW TYPE', 'BARCODE',
+                'PRINT SEQUENCE', 'STRING NUMBER', 'OT', 'SPACER', 'WINDOW TYPE', 'BARCODE',
                 'COMPNAY NAME', 'PICE ID', 'WIDTH', 'HEIGHT', 'GLASS TYPE', 'NRC',
                 'CHAMBERS', 'MODEL', 'U FACTOR', 'SHGC', 'VT', 'ER', 'GRILL TYPE',
                 'ENERGY STAR', 'MODEL2', 'DATE', 'TIME'
@@ -102,7 +102,7 @@ class OPTLABELProcessor(BaseProcessor):
                 
                 try:
                     with open(csv_file_path, 'r', encoding='utf-8') as infile, \
-                         open(temp_path, 'w', newline='', encoding='utf-8') as outfile:
+                        open(temp_path, 'w', newline='', encoding='utf-8') as outfile:
                         outfile.write(','.join(headers) + '\n')
                         infile.seek(0)
                         outfile.writelines(infile.readlines())
@@ -134,6 +134,17 @@ class OPTLABELProcessor(BaseProcessor):
                     
                     try:
                         complete_row = {h: row.get(h, '') or '' for h in actual_headers}
+                        # Trim spaces for all columns
+                        for header in actual_headers:
+                            value = complete_row[header]
+                            if value is not None:
+                                # If the value is all whitespace, set to empty string
+                                if value.strip() == '':
+                                    complete_row[header] = ''
+                                # Otherwise, trim leading and trailing spaces
+                                elif value != value.strip():
+                                    complete_row[header] = value.strip()
+
                         barcode = complete_row.get('BARCODE', '')
                         order_number = complete_row.get('ORDER NUMBER', '')
 

@@ -131,6 +131,16 @@ class FRAMEREPORTProcessor(BaseProcessor):
                     try:
                         # Convert None or empty values to empty strings
                         complete_row = {h: row.get(h, '') or '' for h in actual_headers}
+                        # Trim spaces for all columns
+                        for header in actual_headers:
+                            value = complete_row[header]
+                            if value is not None:
+                                # If the value is all whitespace, set to empty string
+                                if value.strip() == '':
+                                    complete_row[header] = ''
+                                # Otherwise, trim leading and trailing spaces
+                                elif value != value.strip():
+                                    complete_row[header] = value.strip()
                         
                         # Prepare values for insertion
                         values = [complete_row[h] for h in db_columns]

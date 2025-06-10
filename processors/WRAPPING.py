@@ -126,6 +126,17 @@ class WRAPPINGProcessor(BaseProcessor):
                 for row in csvreader:
                     try:
                         complete_row = {h: row.get(h, '') or '' for h in headers}
+                        # Trim spaces for all columns
+                        for header in headers:
+                            value = complete_row[header]
+                            if value is not None:
+                                # If the value is all whitespace, set to empty string
+                                if value.strip() == '':
+                                    complete_row[header] = ''
+                                # Otherwise, trim leading and trailing spaces
+                                elif value != value.strip():
+                                    complete_row[header] = value.strip()
+
                         line_number = complete_row.get('LineNumber', '')
 
                         if not line_number:
@@ -151,7 +162,7 @@ class WRAPPINGProcessor(BaseProcessor):
                     if row['LineNumber'] in existing_line_numbers:
                         duplicates.append({
                             'order': row.get('LineNumber', 'Unknown'),
-                            'original_date':  row.get('Date', 'Unknown'),
+                            'original_date': row.get('Date', 'Unknown'),
                             'type': 'DUPLICATE'
                         })
                         self.logger.info(f"Found duplicate LineNumber: {row['LineNumber']} for Order: {row.get('OrderNumber', 'Unknown')}")

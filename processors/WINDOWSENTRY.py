@@ -121,6 +121,17 @@ class WINDOWSENTRYProcessor(BaseProcessor):
                     total_rows += 1
                     try:
                         csv_row = {h: (row.get(h) or '').strip() for h in headers}
+                        # Trim spaces for all columns
+                        for header in headers:
+                            value = csv_row[header]
+                            if value is not None:
+                                # If the value is all whitespace, set to empty string
+                                if value.strip() == '':
+                                    csv_row[header] = ''
+                                # Otherwise, trim leading and trailing spaces
+                                elif value != value.strip():
+                                    csv_row[header] = value.strip()
+
                         order_number = csv_row['ORDER_NUMBER']
                         quotation_number = csv_row['QUOTATION_NUMBER']
 
@@ -133,7 +144,7 @@ class WINDOWSENTRYProcessor(BaseProcessor):
                         query = """
                             SELECT * FROM `{}` 
                             WHERE (ORDER_NUMBER = %s AND ORDER_NUMBER != '')
-                               OR (QUOTATION_NUMBER = %s AND QUOTATION_NUMBER != '')
+                            OR (QUOTATION_NUMBER = %s AND QUOTATION_NUMBER != '')
                         """.format(table_name)
                         
                         cursor.execute(query, (order_number, quotation_number))

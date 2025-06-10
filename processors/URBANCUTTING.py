@@ -103,7 +103,7 @@ class URBANCUTTINGProcessor(BaseProcessor):
                 
                 try:
                     with open(csv_file_path, 'r', encoding='utf-8') as infile, \
-                         open(temp_path, 'w', newline='', encoding='utf-8') as outfile:
+                        open(temp_path, 'w', newline='', encoding='utf-8') as outfile:
                         outfile.write(','.join(headers) + '\n')
                         outfile.writelines(infile.readlines())
                     
@@ -139,6 +139,17 @@ class URBANCUTTINGProcessor(BaseProcessor):
                 for row in csvreader:
                     try:
                         complete_row = {h: row.get(h, '') or '' for h in actual_headers}
+                        # Trim spaces for all columns
+                        for header in actual_headers:
+                            value = complete_row[header]
+                            if value is not None:
+                                # If the value is all whitespace, set to empty string
+                                if value.strip() == '':
+                                    complete_row[header] = ''
+                                # Otherwise, trim leading and trailing spaces
+                                elif value != value.strip():
+                                    complete_row[header] = value.strip()
+
                         column_o_value = complete_row.get('O', '')
 
                         if not column_o_value:
@@ -154,7 +165,7 @@ class URBANCUTTINGProcessor(BaseProcessor):
             if rows_to_insert:
                 column_o_values = [row['O'] for row in rows_to_insert]
                 format_strings = ','.join(['%s'] * len(column_o_values))
-                query = f"SELECT `O` , `A`  FROM `{table_name}` WHERE `O` IN ({format_strings})"
+                query = f"SELECT `O`, `A` FROM `{table_name}` WHERE `O` IN ({format_strings})"
                 cursor.execute(query, column_o_values)
                 existing_o_values = {row[0] for row in cursor.fetchall()}
                 self.logger.debug(f"Existing column O values in database: {existing_o_values}")
@@ -164,7 +175,7 @@ class URBANCUTTINGProcessor(BaseProcessor):
                     if row['O'] in existing_o_values:
                         duplicates.append({
                             'order': row.get('O', 'Unknown'),  # Adjust if order number is not G
-                            'original_date':  row.get('A', 'Unknown'),
+                            'original_date': row.get('A', 'Unknown'),
                             'type': 'DUPLICATE'
                         })
                         self.logger.info(f"Found duplicate urban_id: {row['O']} for Order: {row.get('G', 'Unknown')}")

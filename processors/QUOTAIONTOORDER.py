@@ -87,7 +87,7 @@ class QUOTAIONTOORDERProcessor(BaseProcessor):
             headers = [
                 'QUOTATION_NUMBER', 'TO_ORDER_NUMBER', 'WINDOWS_QTY', 'LINE_QTY',
                 'OPENING_QTY', 'USER_NAME', 'ORDER_DATE', 'SYSTEM', 'OUTPUT_DATE', 'DEALER NAME'
-                ]
+            ]
 
             # 2. Check if CSV file has headers
             has_headers = False
@@ -129,6 +129,17 @@ class QUOTAIONTOORDERProcessor(BaseProcessor):
                 for row in csvreader:
                     try:
                         complete_row = {h: row.get(h, '') or '' for h in headers}
+                        # Trim spaces for all columns
+                        for header in headers:
+                            value = complete_row[header]
+                            if value is not None:
+                                # If the value is all whitespace, set to empty string
+                                if value.strip() == '':
+                                    complete_row[header] = ''
+                                # Otherwise, trim leading and trailing spaces
+                                elif value != value.strip():
+                                    complete_row[header] = value.strip()
+                        
                         order_number = complete_row.get('TO_ORDER_NUMBER', '')
                         
                         if not order_number:
@@ -143,7 +154,7 @@ class QUOTAIONTOORDERProcessor(BaseProcessor):
                             rows_to_update.append(complete_row)
                             duplicates.append({
                                 'order': order_number,
-                                'original_date':  complete_row.get('ORDER_DATE', 'Unknown'),
+                                'original_date': complete_row.get('ORDER_DATE', 'Unknown'),
                                 'type': 'DUPLICATE'
                             })
                             self.logger.info(f"Found duplicate OrderNumber: {order_number}")

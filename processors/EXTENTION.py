@@ -108,7 +108,7 @@ class EXTENTIONProcessor(BaseProcessor):
                 
                 try:
                     with open(csv_file_path, 'r', encoding='utf-8') as infile, \
-                         open(temp_path, 'w', newline='', encoding='utf-8') as outfile:
+                        open(temp_path, 'w', newline='', encoding='utf-8') as outfile:
                         outfile.write(','.join(headers) + '\n')
                         infile.seek(0)
                         outfile.writelines(infile.readlines())
@@ -147,6 +147,17 @@ class EXTENTIONProcessor(BaseProcessor):
                     
                     try:
                         complete_row = {h: row.get(h, '') or '' for h in actual_headers}
+                        # Trim spaces for all columns
+                        for header in actual_headers:
+                            value = complete_row[header]
+                            if value is not None:
+                                # If the value is all whitespace, set to empty string
+                                if value.strip() == '':
+                                    complete_row[header] = ''
+                                # Otherwise, trim leading and trailing spaces
+                                elif value != value.strip():
+                                    complete_row[header] = value.strip()
+
                         casing_id = complete_row.get('CASING_ID', '')
                         order_number = complete_row.get('ORDER NUMBER', '')
 
@@ -196,8 +207,6 @@ class EXTENTIONProcessor(BaseProcessor):
                     placeholders = ', '.join(['%s'] * len(db_columns))
                     insert_query = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
                     
-                   
-
                     # Batch insert new rows
                     batch_values = [[complete_row[h] for h in db_columns] for complete_row in rows_to_insert]
                     cursor.executemany(insert_query, batch_values)

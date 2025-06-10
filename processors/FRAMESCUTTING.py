@@ -132,6 +132,17 @@ class FRAMESCUTTINGProcessor(BaseProcessor):
                 for row in csvreader:
                     try:
                         complete_row = {h: row.get(h, '') for h in actual_headers}
+                        # Trim spaces for all columns
+                        for header in actual_headers:
+                            value = complete_row[header]
+                            if value is not None:
+                                # If the value is all whitespace, set to empty string
+                                if value.strip() == '':
+                                    complete_row[header] = ''
+                                # Otherwise, trim leading and trailing spaces
+                                elif value != value.strip():
+                                    complete_row[header] = value.strip()
+
                         order_id = complete_row.get('J', '')  # J is order
                         sealed_unit_id = complete_row.get('F', '')  # F is sealed_unit_id
                         is_duplicate = False

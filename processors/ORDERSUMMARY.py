@@ -134,14 +134,26 @@ class ORDERSUMMARYProcessor(BaseProcessor):
                         return False
 
                 db_columns = [h for h in actual_headers]
-                protected_columns = ['LIST DATE', 'NOTE', 'BOOKING_DATE', 'COLOUR_BATCH_NO', 'COLOUR_CUT_DATE']
+                protected_columns = []
                 
                 # Process each row
                 for row in csvreader:
                     try:
-                        # Convert None or empty values to empty strings
+                        # Convert None or empty values to empty strings and trim spaces
                         complete_row = {h: row.get(h, '') or '' for h in actual_headers}
                         order_id = complete_row.get('ORDER#', '')
+
+                        # Trim spaces for all columns except protected ones
+                        for header in actual_headers:
+                            if header not in protected_columns:
+                                value = complete_row[header]
+                                if value is not None:
+                                    # If the value is all whitespace, set to empty string
+                                    if value.strip() == '':
+                                        complete_row[header] = ''
+                                    # Otherwise, trim leading and trailing spaces
+                                    elif value != value.strip():
+                                        complete_row[header] = value.strip()
 
                         if not order_id:
                             self.logger.warning(f"Skipping row with missing ORDER#: {complete_row}")
