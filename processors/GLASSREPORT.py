@@ -6,6 +6,7 @@ from mysql.connector import Error
 import csv
 import os
 import shutil
+import tempfile
 
 class GLASSREPORTProcessor(BaseProcessor):
     def __init__(self, db_handler, email_notifier, logger):
@@ -82,31 +83,37 @@ class GLASSREPORTProcessor(BaseProcessor):
                 'solar_heat_gain', 'visual_trasmittance', 'energy_rating', 'glass_type', 'order', 'width',
                 'height', 'qty', 'description', 'note1', 'note2', 'rack_id', 'complete', 'shipping'
             ]
-            
-            # 2. Check if CSV file already has the expected headers
+        
+            # 2. Check if CSV file already has the headers
+            has_headers = False
+            first_line_headers = []
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
                 first_line = csvfile.readline().strip()
                 first_line_headers = [h.strip() for h in first_line.split(',')]
-                has_expected_headers = first_line_headers == headers
-                
-                if not has_expected_headers:
-                    # Create temp file with headers
-                    import tempfile
-                    temp_dir = tempfile.gettempdir()
-                    temp_path = os.path.join(temp_dir, os.path.basename(csv_file_path) + ".tmp")
+                # Normalize headers for case-insensitive comparison
+                normalized_first_line_headers = [h.lower() for h in first_line_headers]
+                normalized_expected_headers = [h.lower() for h in headers]
+                has_expected_headers = normalized_first_line_headers == normalized_expected_headers
+                has_headers = has_expected_headers
+                self.logger.info(f"CSV headers: {first_line_headers}, Expected: {headers}, Has headers: {has_headers}")
+
+            if not has_headers:
+                # Create temp file with headers
+                temp_dir = tempfile.gettempdir()
+                temp_path = os.path.join(temp_dir, os.path.basename(csv_file_path) + ".tmp")
+                try:
+                    with open(temp_path, 'w', newline='', encoding='utf-8') as temp_file:
+                        temp_file.write(','.join(headers) + '\n')
+                        with open(csv_file_path, 'r', encoding='utf-8') as original_file:
+                            original_file.readline()  # Skip the original first line
+                            temp_file.writelines(original_file.readlines())
                     
-                    try:
-                        with open(temp_path, 'w', newline='', encoding='utf-8') as temp_file:
-                            temp_file.write(','.join(headers) + '\n')
-                            temp_file.write(first_line + '\n')  # Write the first line as data
-                            temp_file.writelines(csvfile.readlines())  # Write the rest
-                        
-                        # Replace original file with temp file
-                        shutil.move(temp_path, csv_file_path)
-                        self.logger.warning(f"Added headers to CSV file: {headers}")
-                    except Exception as e:
-                        self.logger.error(f"Error adding headers to {csv_file_path}: {str(e)}")
-                        return False
+                    # Replace original file with temp file
+                    shutil.move(temp_path, csv_file_path)
+                    self.logger.warning(f"Added headers to CSV file: {headers}")
+                except Exception as e:
+                    self.logger.error(f"Error adding headers to {csv_file_path}: {str(e)}")
+                    return False
             
             # 3. Read all rows and perform duplicate/resend checks
             rows_to_insert = []
@@ -114,14 +121,15 @@ class GLASSREPORTProcessor(BaseProcessor):
             duplicate_rows = 0
             duplicates = []
             resend_orders = []
+            rush_orders = []
             key_field = None
             date_field = 'list_date'
 
             with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
-                csvreader = csv.DictReader(csvfile)
-                actual_headers = [h.strip().replace(' ', '_') for h in csvreader.fieldnames]
+                csv_reader = csv.DictReader(csvfile)
+                actual_headers = [h.strip().replace(' ', '_') for h in csv_reader.fieldnames]
                 
-                self.logger.info(f"Processing CSV with columns: {actual_headers}")
+                self.logger.info(f"Processing CSV with actual headers: {actual_headers}")
 
                 # Check/create table
                 cursor = self.connection.cursor()
@@ -130,9 +138,18 @@ class GLASSREPORTProcessor(BaseProcessor):
                     if not self._create_table(table_name, actual_headers):
                         return False
 
+                # Normalize headers for duplicate header row check
+                normalized_headers = [h.lower() for h in actual_headers]
+
                 # Collect all rows and check for duplicates/resends
-                for row in csvreader:
+                for row in csv_reader:
                     try:
+                        # Check for duplicate header row
+                        row_values = [str(row.get(h, '')).lower().strip() for h in actual_headers]
+                        if row_values == normalized_headers:
+                            self.logger.warning(f"Skipping duplicate header row: {row_values}")
+                            continue
+
                         complete_row = {h: row.get(h, '') for h in actual_headers}
                         # Trim spaces for all columns
                         for header in actual_headers:
@@ -147,7 +164,16 @@ class GLASSREPORTProcessor(BaseProcessor):
 
                         order_id = complete_row.get('order', '')
                         sealed_unit_id = complete_row.get('sealed_unit_id', '')
+                        description = complete_row.get('description', '')
                         is_duplicate = False
+
+                        # Check for rush orders
+                        if description == 'RUSH':
+                            rush_orders.append({
+                                'order': order_id,
+                                'list_date': complete_row.get('list_date', '')
+                            })
+                            self.logger.info(f"Added rush order: order={order_id}, list_date={complete_row.get('list_date', '')}")
 
                         # Check for duplicates (order and sealed_unit_id match)
                         if order_id and sealed_unit_id:
@@ -162,10 +188,10 @@ class GLASSREPORTProcessor(BaseProcessor):
                             
                             if result:
                                 duplicate_rows += 1
-                                original_date = result[0] if result[0] else 'Unknown'
+                                original_date = result[0] if result[0] is not None else 'Unknown'
                                 duplicates.append({
                                     'order': order_id,
-                                    'sealed_unit_id': sealed_unit_id,
+                                    'sealed_unit_id': order_id,
                                     'original_date': original_date,
                                     'type': 'DUPLICATE'
                                 })
@@ -186,11 +212,11 @@ class GLASSREPORTProcessor(BaseProcessor):
                             
                             if result:
                                 duplicate_rows += 1
-                                original_date = result[0] if result[0] else 'Unknown'
+                                original_date = result[0] if result[0] is not None else 'Unknown'
                                 resend_orders.append({
                                     'order': order_id,
                                     'original_date': original_date,
-                                    'type': 'RE-SEND'
+                                    'type': 'RESEND'
                                 })
                                 key_field = 'order'
                                 self.logger.debug(f"Resend found: order={order_id}, original_date={original_date}")
@@ -238,6 +264,12 @@ class GLASSREPORTProcessor(BaseProcessor):
                         table_name=table_name,
                         resends=resend_orders,
                         key_field='order'
+                    )
+                if rush_orders:
+                    self.logger.info(f"Sending rush order notification for {len(rush_orders)} rush orders")
+                    email_notifier.notify_rush(
+                        table_name=table_name,
+                        rush_orders=rush_orders
                     )
                     
             return True

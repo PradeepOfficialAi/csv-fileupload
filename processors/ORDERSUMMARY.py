@@ -160,19 +160,35 @@ class ORDERSUMMARYProcessor(BaseProcessor):
                             continue
 
                         # Check if ORDER# exists
-                        query = "SELECT * FROM `ordersummary` WHERE `ORDER#` = %s"
+                        query = f"SELECT {', '.join([f'`{col}`' for col in db_columns])} FROM `ordersummary` WHERE `ORDER#` = %s"
                         cursor.execute(query, (order_id,))
                         existing_row = cursor.fetchone()
 
                         if existing_row:
-                            # Update existing row, excluding protected columns
-                            update_columns = [h for h in db_columns if h not in protected_columns]
-                            set_clause = ', '.join([f"`{h}` = %s" for h in update_columns])
-                            update_query = f"UPDATE `ordersummary` SET {set_clause} WHERE `ORDER#` = %s"
-                            values = [complete_row[h] for h in update_columns] + [order_id]
-                            cursor.execute(update_query, values)
-                            rows_updated += 1
-                            self.logger.info(f"Updated row for ORDER#: {order_id}")
+                            # Get existing row as dict with column names
+                            existing_row_dict = {db_columns[i]: existing_row[i] for i in range(len(db_columns))}
+                            
+                            # Build update query only for columns where existing value is NULL or empty
+                            update_columns = []
+                            update_values = []
+                            for col in db_columns:
+                                if col not in protected_columns:
+                                    existing_value = existing_row_dict.get(col)
+                                    new_value = complete_row[col]
+                                    # Update only if existing value is NULL or empty string
+                                    if existing_value is None or existing_value == '':
+                                        update_columns.append(col)
+                                        update_values.append(new_value)
+
+                            if update_columns:
+                                set_clause = ', '.join([f"`{col}` = %s" for col in update_columns])
+                                update_query = f"UPDATE `ordersummary` SET {set_clause} WHERE `ORDER#` = %s"
+                                values = update_values + [order_id]
+                                cursor.execute(update_query, values)
+                                rows_updated += 1
+                                self.logger.info(f"Updated row for ORDER#: {order_id} with {len(update_columns)} columns")
+                            else:
+                                self.logger.info(f"No columns to update for ORDER#: {order_id} (all non-empty)")
                         else:
                             # Insert new row
                             columns = ', '.join([f'`{h}`' for h in db_columns])

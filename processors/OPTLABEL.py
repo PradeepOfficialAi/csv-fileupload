@@ -168,6 +168,11 @@ class OPTLABELProcessor(BaseProcessor):
                     existing_record = cursor.fetchone()
                     
                     if existing_record:
+                        # Skip adding to duplicates if COMPANY NAME contains 'RECUT'
+                        company_name = next((row['COMPNAY NAME'] for row in rows_to_insert if row['BARCODE'] == barcode), '')
+                        if 'RECUT' in company_name.upper():
+                            self.logger.info(f"Skipping duplicate check for BARCODE: {barcode} with COMPANY NAME: {company_name}")
+                            continue
                         original_date = existing_record[2] if existing_record[2] else 'Unknown'
                         duplicates.append({
                             'order': barcode_order_map[barcode],

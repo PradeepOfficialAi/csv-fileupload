@@ -144,6 +144,48 @@ class EmailNotifier:
 
         self._send_email(recipients, subject, body)
 
+
+    def notify_rush(self, table_name, rush_orders):
+        """Notify about rush orders"""
+        if not self.enabled:
+            return
+
+        recipients = self.get_recipients_for_table(table_name)
+        if not recipients:
+            self.logger.info(f"No recipients configured for table: {table_name}")
+            return
+
+        table_display_name = get_table_display_name(table_name)
+        
+        subject = f"⚠️ Alert! Rush orders send to cut {datetime.now().strftime('[%Y-%m-%d %I:%M:%S %p]')}"
+        
+        # Deduplicate rush orders based on 'order' field
+        unique_rush_orders = {}
+        for order in rush_orders:
+            order_id = order['order']
+            if order_id not in unique_rush_orders:
+                unique_rush_orders[order_id] = order
+        
+        # Format unique rush orders for email body
+        formatted_rush_orders = []
+        for order in unique_rush_orders.values():
+            formatted_rush_orders.append(
+                f"Order: {order['order']}, Date: {order['list_date']}"
+            )
+            
+        body = f"""
+        <html>
+        <body>
+            <h2>Rush Orders for {table_display_name} Sent to Cut</h2>
+            <ul>
+                {"".join(f"<li>{item}</li>" for item in formatted_rush_orders)}
+            </ul>
+        </body>
+        </html>
+        """
+
+        self._send_email(recipients, subject, body)
+
     def _send_email(self, recipients, subject, body):
         """Send email to recipients"""
         msg = MIMEMultipart('alternative')

@@ -173,6 +173,11 @@ class URBANCUTTINGProcessor(BaseProcessor):
                 # Identify duplicates
                 for row in rows_to_insert:
                     if row['O'] in existing_o_values:
+                        # Skip adding to duplicates if column L contains 'RECUT'
+                        column_l_value = row.get('I', '')
+                        if 'RECUT' in column_l_value.upper():
+                            self.logger.info(f"Skipping duplicate check for urban_id: {row['O']} with column L: {column_l_value}")
+                            continue
                         duplicates.append({
                             'order': row.get('O', 'Unknown'),  # Adjust if order number is not G
                             'original_date': row.get('A', 'Unknown'),
