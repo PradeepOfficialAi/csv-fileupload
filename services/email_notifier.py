@@ -170,7 +170,7 @@ class EmailNotifier:
         formatted_rush_orders = []
         for order in unique_rush_orders.values():
             formatted_rush_orders.append(
-                f"Order: {order['order']}, Date: {order['list_date']}"
+                f"Order: {order['order']}" #, Date: {order['list_date']}"
             )
             
         body = f"""

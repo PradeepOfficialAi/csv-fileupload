@@ -258,6 +258,12 @@ class GLASSREPORTProcessor(BaseProcessor):
                         duplicates=duplicates,
                         key_field=key_field
                     )
+                elif rush_orders:
+                    self.logger.info(f"Sending rush order notification for {len(rush_orders)} rush orders")
+                    email_notifier.notify_rush(
+                        table_name=table_name,
+                        rush_orders=rush_orders
+                    )
                 if resend_orders:
                     self.logger.info(f"Sending resend notification for {len(resend_orders)} resends")
                     email_notifier.notify_resend(
@@ -265,12 +271,7 @@ class GLASSREPORTProcessor(BaseProcessor):
                         resends=resend_orders,
                         key_field='order'
                     )
-                if rush_orders:
-                    self.logger.info(f"Sending rush order notification for {len(rush_orders)} rush orders")
-                    email_notifier.notify_rush(
-                        table_name=table_name,
-                        rush_orders=rush_orders
-                    )
+                
                     
             return True
                 
