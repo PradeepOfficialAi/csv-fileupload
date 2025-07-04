@@ -102,7 +102,7 @@ class INVOICEDATESProcessor(BaseProcessor):
                 return False
             
             # 3. Check table existence and schema
-            cursor = self.connection.cursor()
+            cursor = self.connection.cursor(buffered=True)
             if not self._table_exists(cursor, table_name):
                 self.logger.info(f"Table '{table_name}' does not exist, attempting to create")
                 if not self._create_table(table_name, headers):
