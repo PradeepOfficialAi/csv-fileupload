@@ -168,17 +168,16 @@ class ORDERSUMMARYProcessor(BaseProcessor):
                             # Get existing row as dict with column names
                             existing_row_dict = {db_columns[i]: existing_row[i] for i in range(len(db_columns))}
                             
-                            # Build update query only for columns where existing value is NULL or empty
+                            # Build update query for columns where CSV value is not NULL or empty
                             update_columns = []
                             update_values = []
                             for col in db_columns:
                                 if col not in protected_columns:
-                                    existing_value = existing_row_dict.get(col)
                                     new_value = complete_row[col]
-                                    # Update only if existing value is NULL or empty string
-                                    if existing_value is None or existing_value == '':
+                                    # Update only if new value is not NULL or empty string
+                                    if new_value is not None and new_value != '':
                                         update_columns.append(col)
-                                        update_values.append(new_value)
+                                        update_values.append(new_value) 
 
                             if update_columns:
                                 set_clause = ', '.join([f"`{col}` = %s" for col in update_columns])
