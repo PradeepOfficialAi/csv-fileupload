@@ -9,6 +9,9 @@ from config.config import ConfigManager
 from services.database_service import DatabaseService
 from services.email_notifier import EmailNotifier
 
+import os 
+from PIL import Image, ImageTk
+
 class MainApplication(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -21,6 +24,9 @@ class MainApplication(tk.Tk):
         self.geometry("1000x700")
         self.minsize(800, 800)
         
+        icon_path = os.path.join(os.path.dirname(__file__), 'csv.png')
+        self._set_icon(icon_path)
+        
         # مدیریت تنظیمات و سرویس‌ها
         self._initialize_services()
         
@@ -29,6 +35,19 @@ class MainApplication(tk.Tk):
         
         # منوی برنامه
         self._create_menu()
+        
+    def _set_icon(self,icon_path):
+        try:
+            icon_path = os.path.join(os.path.dirname(__file__), 'csv.png')
+            print(f"Icon path: {icon_path}")  # برای دیباگ
+            img = Image.open(icon_path)
+            icon = ImageTk.PhotoImage(img)
+            self.iconphoto(True, icon)
+            self.wm_iconphoto(True, icon)
+            self.icon = icon  # ذخیره رفرنس برای جلوگیری از garbage collection
+        except Exception as e:
+            print(f"خطا در تنظیم آیکون: {str(e)}")
+            
     
     def _initialize_services(self):
         """مقداردهی اولیه سرویس‌ها با مدیریت خطا"""
