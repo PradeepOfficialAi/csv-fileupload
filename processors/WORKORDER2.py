@@ -82,7 +82,7 @@ class WORKORDER2Processor(BaseProcessor):
             ]
 
             # 2. Check if CSV file already has the expected headers
-            with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
+            with open(csv_file_path, 'r', encoding='Windows-1252', errors='replace') as csvfile:
                 first_line = csvfile.readline().strip()
                 first_line_headers = [h.strip() for h in first_line.split(',')]
                 has_expected_headers = first_line_headers == headers
