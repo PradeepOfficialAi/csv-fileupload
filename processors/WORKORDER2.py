@@ -111,7 +111,7 @@ class WORKORDER2Processor(BaseProcessor):
             updated_rows = 0
             new_rows = 0
             
-            with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
+            with open(csv_file_path, 'r', encoding='Windows-1252') as csvfile:
                 csvreader = csv.DictReader(csvfile)
                 actual_headers = [h.strip() for h in csvreader.fieldnames]
                 
@@ -135,6 +135,7 @@ class WORKORDER2Processor(BaseProcessor):
                         for header in actual_headers:
                             value = complete_row[header]
                             if value is not None:
+                                complete_row[header] = value.replace('°', 'deg')
                                 # If the value is all whitespace, set to empty string
                                 if value.strip() == '':
                                     complete_row[header] = ''
