@@ -127,7 +127,7 @@ class ORDERSUMMARYProcessor(BaseProcessor):
                 self.logger.info(f"Processing CSV with columns: {actual_headers}")
 
                 # Check/create table
-                cursor = self.connection.cursor()
+                cursor = self.connection.cursor(buffered=True)
                 cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
                 if not cursor.fetchone():
                     if not self._create_table(table_name, actual_headers):
@@ -222,7 +222,7 @@ class ORDERSUMMARYProcessor(BaseProcessor):
         """Create table with appropriate structure"""
         cursor = None
         try:
-            cursor = self.connection.cursor()
+            cursor = self.connection.cursor(buffered=True)
             
             # Map Python types to SQL types
             type_mapping = {
