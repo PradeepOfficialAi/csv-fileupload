@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_quotation_to_order_record_list" model="ir.ui.view">
+        <field name="name">quotation.to.order.record.list</field>
+        <field name="model">quotation.to.order.record</field>
+        <field name="arch" type="xml">
+            <list string="Quotation to Order">
+                <field name="quotation_number"/>
+                <field name="to_order_number"/>
+                <field name="windows_qty"/>
+                <field name="line_qty"/>
+                <field name="opening_qty"/>
+                <field name="user_name"/>
+                <field name="upload_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_quotation_to_order_record_form" model="ir.ui.view">
+        <field name="name">quotation.to.order.record.form</field>
+        <field name="model">quotation.to.order.record</field>
+        <field name="arch" type="xml">
+            <form string="Quotation to Order Row">
+                <sheet>
+                    <group col="2">
+                        <field name="upload_id"/>
+                        <field name="quotation_number"/>
+                        <field name="to_order_number"/>
+                        <field name="windows_qty"/>
+                        <field name="line_qty"/>
+                        <field name="opening_qty"/>
+                        <field name="user_name"/>
+                        <field name="order_date"/>
+                        <field name="system"/>
+                        <field name="output_date"/>
+                        <field name="dealer_name"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>

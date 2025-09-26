@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_glass_report_record_list" model="ir.ui.view">
+        <field name="name">glass.report.record.list</field>
+        <field name="model">glass.report.record</field>
+        <field name="arch" type="xml">
+            <list string="Glass Reports">
+                <field name="order_ref"/>
+                <field name="list_date"/>
+                <field name="sealed_unit_id"/>
+                <field name="window_type"/>
+                <field name="dealer"/>
+                <field name="qty"/>
+                <field name="upload_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_glass_report_record_form" model="ir.ui.view">
+        <field name="name">glass.report.record.form</field>
+        <field name="model">glass.report.record</field>
+        <field name="arch" type="xml">
+            <form string="Glass Report">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="upload_id"/>
+                            <field name="order_ref"/>
+                            <field name="sealed_unit_id"/>
+                            <field name="window_type"/>
+                            <field name="glass_type"/>
+                            <field name="qty"/>
+                        </group>
+                        <group>
+                            <field name="order_date"/>
+                            <field name="list_date"/>
+                            <field name="dealer"/>
+                            <field name="tag"/>
+                            <field name="zones"/>
+                            <field name="rack_id"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Details">
+                            <group col="2">
+                                <field name="line1"/>
+                                <field name="line2"/>
+                                <field name="line3"/>
+                                <field name="grills"/>
+                                <field name="spacer"/>
+                                <field name="glass_comment"/>
+                                <field name="description"/>
+                                <field name="note1"/>
+                                <field name="note2"/>
+                            </group>
+                        </page>
+                        <page string="Metrics">
+                            <group col="2">
+                                <field name="width"/>
+                                <field name="height"/>
+                                <field name="u_value"/>
+                                <field name="solar_heat_gain"/>
+                                <field name="visual_trasmittance"/>
+                                <field name="energy_rating"/>
+                                <field name="complete"/>
+                                <field name="shipping"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_frames_cutting_record_list" model="ir.ui.view">
+        <field name="name">frames.cutting.record.list</field>
+        <field name="model">frames.cutting.record</field>
+        <field name="arch" type="xml">
+            <list string="Frame Cutting">
+                <field name="col_a"/>
+                <field name="col_b"/>
+                <field name="col_c"/>
+                <field name="col_d"/>
+                <field name="col_e"/>
+                <field name="col_f"/>
+                <field name="col_g"/>
+                <field name="col_h"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_frames_cutting_record_form" model="ir.ui.view">
+        <field name="name">frames.cutting.record.form</field>
+        <field name="model">frames.cutting.record</field>
+        <field name="arch" type="xml">
+            <form string="Frame Cutting Row">
+                <sheet>
+                    <group col="2">
+                        <field name="upload_id"/>
+                        <field name="col_a"/>
+                        <field name="col_b"/>
+                        <field name="col_c"/>
+                        <field name="col_d"/>
+                        <field name="col_e"/>
+                        <field name="col_f"/>
+                        <field name="col_g"/>
+                        <field name="col_h"/>
+                        <field name="col_i"/>
+                        <field name="col_j"/>
+                        <field name="col_k"/>
+                        <field name="col_l"/>
+                        <field name="col_m"/>
+                        <field name="col_n"/>
+                        <field name="col_o"/>
+                        <field name="col_p"/>
+                        <field name="col_q"/>
+                        <field name="col_r"/>
+                        <field name="col_s"/>
+                        <field name="col_t"/>
+                        <field name="col_u"/>
+                        <field name="col_v"/>
+                        <field name="col_w"/>
+                        <field name="col_x"/>
+                        <field name="col_y"/>
+                        <field name="col_z"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>

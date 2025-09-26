@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Views -->
+    <record id="view_csv_upload_list" model="ir.ui.view">
+        <field name="name">csv.upload.list</field>
+        <field name="model">csv.upload</field>
+        <field name="arch" type="xml">
+            <list string="CSV Uploads" create="false">
+                <field name="name"/>
+                <field name="type_id"/>
+                <field name="state"/>
+                <field name="upload_datetime"/>
+                <field name="upload_user_id"/>
+                <field name="original_filename"/>
+                <field name="row_count"/>
+                <field name="duplicate_count"/>
+                <field name="error_count"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_csv_upload_form" model="ir.ui.view">
+        <field name="name">csv.upload.form</field>
+        <field name="model">csv.upload</field>
+        <field name="arch" type="xml">
+            <form string="CSV Upload">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="type_id"/>
+                            <field name="state" readonly="1"/>
+                            <field name="upload_datetime" readonly="1"/>
+                            <field name="upload_user_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="original_filename" readonly="1"/>
+                            <field name="source_system"/>
+                            <field name="row_count" readonly="1"/>
+                            <field name="duplicate_count" readonly="1"/>
+                            <field name="error_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="File">
+                            <field name="file_data" filename="original_filename" readonly="1"/>
+                        </page>
+                        <page string="Lines">
+                            <field name="line_ids" context="{'default_upload_id': id}" readonly="1">
+                                <list string="Lines">
+                                    <field name="row_index"/>
+                                    <field name="status"/>
+                                    <field name="message"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Logs">
+                            <field name="log_message" readonly="1" widget="text"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Actions -->
+    <record id="action_csv_uploads" model="ir.actions.act_window">
+        <field name="name">All CSV Uploads</field>
+        <field name="res_model">csv.upload</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_glass_report_records" model="ir.actions.act_window">
+        <field name="name">Glass Reports</field>
+        <field name="res_model">glass.report.record</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_frames_cutting_records" model="ir.actions.act_window">
+        <field name="name">Frame Cutting</field>
+        <field name="res_model">frames.cutting.record</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_casing_cutting_records" model="ir.actions.act_window">
+        <field name="name">Casing Cutting</field>
+        <field name="res_model">casing.cutting.record</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_invoice_date_records" model="ir.actions.act_window">
+        <field name="name">Invoice Dates</field>
+        <field name="res_model">invoice.date.record</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_quotation_to_order_records" model="ir.actions.act_window">
+        <field name="name">Quotation to Order</field>
+        <field name="res_model">quotation.to.order.record</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_window_entry_records" model="ir.actions.act_window">
+        <field name="name">Window Entries</field>
+        <field name="res_model">window.entry.record</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_work_order_records" model="ir.actions.act_window">
+        <field name="name">Work Orders</field>
+        <field name="res_model">work.order.record</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_work_order_alt_records" model="ir.actions.act_window">
+        <field name="name">Work Orders (Alt)</field>
+        <field name="res_model">work.order.alternate.record</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- Menus under Sales -->
+    <menuitem id="menu_csv_uploader_root" name="Uploaded Files" parent="sale.sale_menu_root" sequence="60"/>
+    <menuitem id="menu_csv_uploads" name="All Uploads" parent="menu_csv_uploader_root" action="action_csv_uploads" sequence="1"/>
+    <menuitem id="menu_glass_report_records" name="Glass" parent="menu_csv_uploader_root" action="action_glass_report_records" sequence="5"/>
+    <menuitem id="menu_frames_cutting_records" name="Frame" parent="menu_csv_uploader_root" action="action_frames_cutting_records" sequence="6"/>
+    <menuitem id="menu_casing_cutting_records" name="Casing Cutting" parent="menu_csv_uploader_root" action="action_casing_cutting_records" sequence="6"/>
+    <menuitem id="menu_invoice_date_records" name="Invoice Dates" parent="menu_csv_uploader_root" action="action_invoice_date_records" sequence="7"/>
+    <menuitem id="menu_quotation_to_order_records" name="Quotation To Order" parent="menu_csv_uploader_root" action="action_quotation_to_order_records" sequence="8"/>
+    <menuitem id="menu_window_entry_records" name="Window Entry" parent="menu_csv_uploader_root" action="action_window_entry_records" sequence="9"/>
+    <menuitem id="menu_work_order_records" name="Work Order" parent="menu_csv_uploader_root" action="action_work_order_records" sequence="10"/>
+    <menuitem id="menu_work_order_alt_records" name="Work Order (Alt)" parent="menu_csv_uploader_root" action="action_work_order_alt_records" sequence="11"/>
+</odoo>
+

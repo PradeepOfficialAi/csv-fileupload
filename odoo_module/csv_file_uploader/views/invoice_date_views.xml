@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_invoice_date_record_list" model="ir.ui.view">
+        <field name="name">invoice.date.record.list</field>
+        <field name="model">invoice.date.record</field>
+        <field name="arch" type="xml">
+            <list string="Invoice Dates">
+                <field name="order_number"/>
+                <field name="company"/>
+                <field name="invoice_date"/>
+                <field name="invoice_number"/>
+                <field name="live_or_test"/>
+                <field name="upload_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_invoice_date_record_form" model="ir.ui.view">
+        <field name="name">invoice.date.record.form</field>
+        <field name="model">invoice.date.record</field>
+        <field name="arch" type="xml">
+            <form string="Invoice Date Row">
+                <sheet>
+                    <group col="2">
+                        <field name="upload_id"/>
+                        <field name="order_number"/>
+                        <field name="company"/>
+                        <field name="invoice_date"/>
+                        <field name="invoice_number"/>
+                        <field name="live_or_test"/>
+                        <field name="original_order"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>

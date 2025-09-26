@@ -1,0 +1,13 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_csv_upload_type_user,csv.upload.type user,model_csv_upload_type,base.group_user,1,1,1,0
+access_csv_upload_user,csv.upload user,model_csv_upload,base.group_user,1,1,1,0
+access_csv_upload_line_user,csv.upload.line user,model_csv_upload_line,base.group_user,1,0,0,0
+access_csv_upload_log_user,csv.upload.log user,model_csv_upload_log,base.group_user,1,0,0,0
+access_glass_report_record_user,glass.report.record user,model_glass_report_record,base.group_user,1,1,1,0
+access_frames_cutting_record_user,frames.cutting.record user,model_frames_cutting_record,base.group_user,1,1,1,0
+access_invoice_date_record_user,invoice.date.record user,model_invoice_date_record,base.group_user,1,1,1,0
+access_quotation_to_order_record_user,quotation.to.order.record user,model_quotation_to_order_record,base.group_user,1,1,1,0
+access_window_entry_record_user,window.entry.record user,model_window_entry_record,base.group_user,1,1,1,0
+access_work_order_record_user,work.order.record user,model_work_order_record,base.group_user,1,1,1,0
+access_work_order_alternate_record_user,work.order.alternate.record user,model_work_order_alternate_record,base.group_user,1,1,1,0
+access_casing_cutting_record_user,casing.cutting.record user,model_casing_cutting_record,base.group_user,1,1,1,0
