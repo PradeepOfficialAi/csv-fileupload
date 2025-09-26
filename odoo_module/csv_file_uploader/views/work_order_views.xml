@@ -56,7 +56,7 @@
         <field name="name">work.order.alternate.record.list</field>
         <field name="model">work.order.alternate.record</field>
         <field name="arch" type="xml">
-            <list string="Work Orders (Alt)">
+            <list string="Work Orders 2">
                 <field name="order_number"/>
                 <field name="po"/>
                 <field name="dealer"/>

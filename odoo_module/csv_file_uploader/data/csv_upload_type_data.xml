@@ -10,7 +10,7 @@
     </record>
 
     <record id="csv_upload_type_workorder_alt" model="csv.upload.type">
-        <field name="name">Work Orders (Alt)</field>
+        <field name="name">Work Orders 2</field>
         <field name="code">WORKORDER2</field>
         <field name="target_model">work.order.alternate.record</field>
         <field name="primary_key">order_number</field>
